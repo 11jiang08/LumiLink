@@ -1,9 +1,9 @@
 # app.py
 """
 2030“微光相遇” (Lumina Campus Link) - 主程序与 Gradio 交互界面
-已调整问题顺序并重新编号
 """
 
+import time
 import gradio as gr
 import config
 from user_profile import UserProfile, MatchResult
@@ -28,13 +28,28 @@ Q7_MAP = {
     "C. “温和点，简单打个招呼，顺其自然。”": "社恐专属型"
 }
 
+MAX_HOBBIES = 5  # 最多支持预设的兴趣框数量
+
+
+def add_hobby_input(current_count):
+    """点击按钮后，增加显示一个兴趣爱好输入框"""
+    new_count = min(current_count + 1, MAX_HOBBIES)
+    # 根据新的数量返回各个输入框的显示状态 (Visible)
+    updates = [gr.update(visible=(i < new_count)) for i in range(MAX_HOBBIES)]
+    return [new_count] + updates
+
 
 def run_pipeline(
-    nickname, q1_val, q2_val, hobbies_text, weaknesses, landmines, text_intent, image_input, q7_val
+    nickname, q1_val, q2_val,
+    h1, h2, h3, h4, h5,  # 5 个动态兴趣输入框
+    weaknesses, landmines, text_intent, image_input, q7_val
 ):
     """处理重排顺序后的问卷并运行匹配流程"""
-    # 1. 解析基础兴趣
-    hobbies_list = [h.strip() for h in hobbies_text.replace("，", ",").split(",") if h.strip()]
+    # 1. 收集并过滤非空的兴趣爱好
+    raw_hobbies = [h1, h2, h3, h4, h5]
+    hobbies_list = [h.strip() for h in raw_hobbies if h and h.strip()]
+    if not hobbies_list:
+        hobbies_list = ["随性聊天", "校园生活"]
     
     # 2. 解析 Q1/Q2 为正向性格特质标签
     personality_traits = [
@@ -42,8 +57,9 @@ def run_pipeline(
         Q2_MAP.get(q2_val, "随和体贴")
     ]
     
-    # 3. 多模态视觉感知融合
-    multimodal_res = fuse_multimodal_inputs(text_intent, hobbies_list, image_input)
+    # 3. 多模态视觉感知融合（如果意图为空，使用默认意图）
+    final_intent = text_intent.strip() if text_intent and text_intent.strip() else "今晚想去操场跑步，顺便找人聊天"
+    multimodal_res = fuse_multimodal_inputs(final_intent, hobbies_list, image_input)
     
     # 4. 构建规范化的 UserProfile 对象
     user_profile = UserProfile(
@@ -59,10 +75,13 @@ def run_pipeline(
     
     # 校验基础必填项
     if not user_profile.is_valid:
+        # 复原按钮状态并返回提示
+        btn_update = gr.update(value="🚀 开启微光逆向匹配", elem_classes=["normal-btn"])
         return (
             "⚠️ **请填写昵称并勾选至少一个个人缺点**（即使是加密区，AI 也需要了解真实的你才能做避雷与互补判定哦！）",
             "",
-            ""
+            "",
+            btn_update
         )
         
     # 5. 调用 LLM 逆向匹配
@@ -81,7 +100,7 @@ def run_pipeline(
     # 6. 调用 Action Engine 生成破冰与行动建议
     action_res = generate_icebreaker_and_guide(user_profile.to_dict(), raw_match)
     
-    # 7. 格式化输出（高亮用户在 Q7 选择的偏好开场白风格）
+    # 7. 格式化输出
     match_md = match_result_obj.to_markdown()
     
     pref_style = Q7_MAP.get(q7_val, "社恐专属型")
@@ -102,15 +121,43 @@ def run_pipeline(
         f"💡 **话题避坑指南**：{guide.get('avoid_pitfalls', '')}"
     )
     
-    return match_md, icebreaker_md, guide_md
+    # 计算完成后将按钮重置回初始样式
+    btn_update = gr.update(value="🚀 开启微光逆向匹配", elem_classes=["normal-btn"])
+    
+    return match_md, icebreaker_md, guide_md, btn_update
 
 
-# ==========================================
-# Gradio Blocks 界面搭建（重新编号版）
-# ==========================================
+def set_button_loading():
+    """点击匹配时立即调用的前置函数：改变按钮文字和样式为变红过渡态"""
+    return gr.update(value="正在微光逆向匹配......", elem_classes=["matching-btn"])
+
+
+# 自定义 CSS 样式：控制按钮点击变红及平滑过渡
+custom_css = """
+.normal-btn {
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
+    color: white !important;
+    transition: all 0.4s ease-in-out !important;
+}
+.matching-btn {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+    color: white !important;
+    animation: pulse 1.5s infinite;
+    transition: all 0.4s ease-in-out !important;
+}
+@keyframes pulse {
+    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+    70% { transform: scale(1.02); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+"""
+
 theme = gr.themes.Soft(primary_hue="indigo", secondary_hue="slate")
 
-with gr.Blocks(theme=theme, title="2030 微光相遇 (Lumina Campus Link)") as demo:
+with gr.Blocks(theme=theme, css=custom_css, title="2030 微光相遇 (Lumina Campus Link)") as demo:
+    # 状态变量：记录当前显示的兴趣输入框数量
+    hobby_count_state = gr.State(value=1)
+    
     gr.Markdown(
         """
         # ✨ 2030“微光相遇” (Lumina Campus Link)
@@ -120,7 +167,7 @@ with gr.Blocks(theme=theme, title="2030 微光相遇 (Lumina Campus Link)") as d
     )
     
     with gr.Row():
-        # 左侧：新版问卷输入区
+        # 左侧：问卷输入区
         with gr.Column(scale=5):
             nickname_in = gr.Textbox(label="你的昵称/代号", value="小明", placeholder="怎么称呼你？")
             
@@ -141,7 +188,7 @@ with gr.Blocks(theme=theme, title="2030 微光相遇 (Lumina Campus Link)") as d
             gr.Markdown(
                 """
                 #### 🔒 模块二：B面真实档案（加密保密区）
-                > *“在这里，我们不需要虚假的人设。请告诉我们你最真实的‘B面’，这些信息是保密的，只有算法能读懂。”*
+                > *“在这里，我们不需要虚假的人设。请告诉我们你最真实的‘B面’，这些信息是为你严格保密的。”*
                 """
             )
             q3_in = gr.CheckboxGroup(
@@ -157,27 +204,34 @@ with gr.Blocks(theme=theme, title="2030 微光相遇 (Lumina Campus Link)") as d
 
             # --- 模块三：偏好与即时状态 ---
             gr.Markdown("#### 📸 模块三：偏好与即时状态")
-            q5_in = gr.Textbox(
-                label="Q5 (兴趣爱好)：为了给你寻找志同道合的伙伴，请在这里填入你的兴趣爱好，用逗号隔开",
-                value="硬核科幻, 周杰伦, 跑圈, 食堂火锅",
-                placeholder="例如：看书, 摄影, 猫咪, 考研刷题"
-            )
+            
+            gr.Markdown("**Q5 (兴趣爱好)：为了给你寻找志同道合的伙伴，请在这里填入你的兴趣爱好（最多5项）**")
+            # 动态兴趣输入框组（默认显示 1 个，最多 5 个）
+            hobby_inputs = []
+            hobby_inputs.append(gr.Textbox(label="兴趣 1", value="", placeholder="例如：硬核科幻", visible=True))
+            hobby_inputs.append(gr.Textbox(label="兴趣 2", value="", placeholder="例如：周杰伦", visible=False))
+            hobby_inputs.append(gr.Textbox(label="兴趣 3", value="", placeholder="输入一个兴趣爱好", visible=False))        
+            hobby_inputs.append(gr.Textbox(label="兴趣 4", placeholder="输入一个兴趣爱好", visible=False))
+            hobby_inputs.append(gr.Textbox(label="兴趣 5", placeholder="输入一个兴趣爱好", visible=False))
+            
+            add_hobby_btn = gr.Button("➕ 添加兴趣爱好", size="sm")
+
             intent_in = gr.Textbox(
                 label="Q6 (当下意图/想做什么)：给算法看一眼你此时的状态/当下最想做的事情", 
-                value="今晚想去操场跑步，顺便找人聊天", 
-                placeholder="例如：想找人一起去图书馆赶作业/去食堂吃火锅"
+                value="", # 置空 value
+                placeholder="今晚想去操场跑步，顺便找人聊天" # 使用灰色占位符提示
+            )
+            image_in = gr.Image(
+                label="随手拍：对着你现在的书桌、正在读的课本或者想去的操场拍一张照片", 
+                type="pil"
             )
             q7_in = gr.Radio(
                 choices=list(Q7_MAP.keys()),
                 value="C. “温和点，简单打个招呼，顺其自然。”",
                 label="Q7 (破冰风格)：匹配成功后，你希望我们以什么方式帮你开启第一句话？"
             )
-            image_in = gr.Image(
-                            label="随手拍：对着你现在的书桌、正在读的课本或者想去的操场拍一张照片", 
-                            type="pil"
-            )
             
-            submit_btn = gr.Button("🚀 开启微光逆向匹配", variant="primary", size="lg")
+            submit_btn = gr.Button("🚀 开启微光逆向匹配", variant="primary", size="lg", elem_classes=["normal-btn"])
 
         # 右侧：结果展示区
         with gr.Column(scale=5):
@@ -185,11 +239,28 @@ with gr.Blocks(theme=theme, title="2030 微光相遇 (Lumina Campus Link)") as d
             icebreaker_out = gr.Markdown("### 💬 破冰开场白建议")
             guide_out = gr.Markdown("### 🗺️ 线下行动指南")
 
-    # 事件绑定
+    # --- 事件绑定 ---
+    
+    # 1. 点击添加兴趣爱好按钮
+    add_hobby_btn.click(
+        fn=add_hobby_input,
+        inputs=[hobby_count_state],
+        outputs=[hobby_count_state] + hobby_inputs
+    )
+    
+    # 2. 点击匹配按钮：链式触发 (先把按钮变红 + 改字 -> 再运行后端 pipeline)
     submit_btn.click(
+        fn=set_button_loading,
+        inputs=None,
+        outputs=[submit_btn]
+    ).then(
         fn=run_pipeline,
-        inputs=[nickname_in, q1_in, q2_in, q5_in, q3_in, q4_in, intent_in, image_in, q7_in],
-        outputs=[match_out, icebreaker_out, guide_out]
+        inputs=[
+            nickname_in, q1_in, q2_in,
+            hobby_inputs[0], hobby_inputs[1], hobby_inputs[2], hobby_inputs[3], hobby_inputs[4],
+            q3_in, q4_in, intent_in, image_in, q7_in
+        ],
+        outputs=[match_out, icebreaker_out, guide_out, submit_btn]
     )
 
 app = demo
