@@ -1,180 +1,149 @@
+# modules/cv_perception.py
 """
-CV 感知层 (CV Perception Layer)
-================================
-目标：无感获取用户当下的状态与兴趣。
-
-- ResNet18：轻量快速的场景分类（操场 / 图书馆 / 食堂 / 宿舍 / 教室 / 猫咖 …）
-- YOLOv8：图文复合识别，提取画面中的关键物品（羽毛球拍、科幻小说、咖啡 …）
-
-输出结构化 JSON：
-    {
-        "current_scene": "canteen",
-        "detected_objects": ["hotpot", "coke"]
-    }
-
-说明：为降低高中生演示门槛，本模块默认使用 torchvision 预训练 ResNet18
-      + YOLOv8n 官方 COCO 权重。后续可替换为自训练的校园场景权重。
+多模态感知模块 (CV Perception Layer)
+核心功能：
+1. ResNet18 图像场景分类 (操场/图书馆/食堂等)
+2. YOLOv8 目标检测 (识别特征物品，如球拍、习题册、电脑等)
+3. 多模态融合：结合用户输入的文字与图像识别结果，生成统一结构化 JSON 标签
 """
-from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Any
+import os
+import config
 
-from config import CV
+logger = logging.getLogger(__name__)
 
-logger = logging.getLogger("LumiLink.cv")
+# 全局模型实例变量（延迟加载）
+yolo_model = None
+resnet_model = None
+resnet_transforms = None
 
 
-class CVPerceiver:
-    """视觉感知统一入口。"""
-
-    def __init__(self) -> None:
-        self._resnet = None
-        self._yolo = None
-        self._scene_labels = CV.scene_labels
-        # 物品 -> 兴趣标签 的映射（COCO 类别子集，演示用）
-        self._object_to_interest: dict[str, str] = {
-            "book": "阅读/小说",
-            "sports ball": "球类运动",
-            "baseball bat": "球类运动",
-            "tennis racket": "羽毛球/网球",
-            "bottle": "饮品",
-            "cup": "咖啡/茶饮",
-            "laptop": "数码/编程",
-            "cell phone": "数码",
-            "backpack": "出行",
-            "handbag": "出行",
-            "guitar": "音乐",
-            "umbrella": "出行",
-        }
-
-    # ---------- 模型懒加载 ----------
-    def _load_resnet(self):
-        if self._resnet is None:
-            import torch
-            from torchvision import models, transforms
-
-            logger.info("加载 ResNet18 预训练权重 ...")
-            weights = (
-                models.ResNet18_Weights.DEFAULT
-                if CV.resnet_weights is None
-                else None
-            )
-            model = models.resnet18(weights=weights)
-            model.eval()
-            self._resnet = model
-            self._resnet_transform = transforms.Compose(
-                [
-                    transforms.ToPILImage(),
-                    transforms.Resize((224, 224)),
-                    transforms.ToTensor(),
-                    transforms.Normalize(
-                        mean=[0.485, 0.456, 0.406],
-                        std=[0.229, 0.224, 0.225],
-                    ),
-                ]
-            )
-            # 若未自训练，使用 ImageNet 1000 类做近似映射
-            self._imagenet_labels = (
-                models.ResNet18_Weights.DEFAULT.meta["categories"]
-                if weights is not None
-                else []
-            )
-        return self._resnet
-
-    def _load_yolo(self):
-        if self._yolo is None:
+def _init_models():
+    """按需延迟初始化 CV 模型，避免启动卡顿"""
+    global yolo_model, resnet_model, resnet_transforms
+    
+    # 1. 初始化 YOLOv8
+    if yolo_model is None:
+        try:
             from ultralytics import YOLO
+            yolo_model = YOLO(config.YOLO_MODEL_PATH)
+            logger.info("YOLOv8 模型加载成功！")
+        except Exception as e:
+            logger.warning(f"YOLOv8 加载失败 (使用模拟解析保底): {e}")
 
-            logger.info("加载 YOLOv8n 权重 ...")
-            self._yolo = YOLO(CV.yolo_weights)
-        return self._yolo
-
-    # ---------- 主流程 ----------
-    def perceive(self, image_path: str | Path) -> dict[str, Any]:
-        """对单张图片执行场景分类 + 物品检测，返回结构化结果。"""
-        image_path = str(image_path)
-        scene = self._classify_scene(image_path)
-        objects = self._detect_objects(image_path)
-        return {
-            "current_scene": scene,
-            "detected_objects": objects,
-        }
-
-    # ---------- ResNet18 场景分类 ----------
-    def _classify_scene(self, image_path: str) -> str:
-        """对当前演示版，用 ImageNet 预训练结果做规则映射到自定义场景标签。"""
+    # 2. 初始化 ResNet18
+    if resnet_model is None:
         try:
             import torch
-
-            model = self._load_resnet()
-            import cv2
-            import numpy as np
-
-            bgr = cv2.imread(image_path)
-            if bgr is None:
-                return "未知"
-            rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-            tensor = self._resnet_transform(rgb).unsqueeze(0)
-
-            with torch.no_grad():
-                logits = model(tensor)
-                idx = int(logits.argmax(1).item())
-            label = self._imagenet_labels[idx] if self._imagenet_labels else ""
-
-            # ImageNet 标签 -> 校园场景 的简单规则映射
-            label_lower = label.lower()
-            if any(k in label_lower for k in ("library", "bookshop", "book")):
-                return "library_study"
-            if any(k in label_lower for k in ("dining", "restaurant", "cafeteria", "tray")):
-                return "canteen"
-            if any(k in label_lower for k in ("stadium", "court", "gym")):
-                return "playground"
-            if any(k in label_lower for k in ("desk", "monitor", "computer")):
-                return "classroom"
-            if any(k in label_lower for k in ("bed", "dorm")):
-                return "dormitory"
-            if any(k in label_lower for k in ("cafe", "espresso")):
-                return "cafe"
-            return "未分类"
+            import torchvision.models as models
+            import torchvision.transforms as transforms
+            
+            resnet_model = models.resnet18(pretrained=True)
+            resnet_model.eval()
+            
+            resnet_transforms = transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ])
+            logger.info("ResNet18 模型加载成功！")
         except Exception as e:
-            logger.warning("ResNet18 场景分类失败，使用兜底：%s", e)
-            return "未分类"
+            logger.warning(f"ResNet18 加载失败 (使用模拟解析保底): {e}")
 
-    # ---------- YOLOv8 物品检测 ----------
-    def _detect_objects(self, image_path: str) -> list[str]:
+
+def analyze_image(image_input) -> dict:
+    """
+    对上传的照片进行 CV 感知分析
+    
+    :param image_input: PIL Image 或 numpy array (来自 Gradio)
+    :return: {"detected_scene": "操场跑道", "detected_objects": ["球拍", "水杯"], "extracted_tags": ["夜跑", "羽毛球"]}
+    """
+    if image_input is None:
+        return {
+            "detected_scene": "未知场景",
+            "detected_objects": [],
+            "extracted_tags": []
+        }
+
+    _init_models()
+    
+    detected_objects = []
+    extracted_tags = []
+    detected_scene = "校园广场"
+
+    # --- 1. YOLOv8 物品检测 ---
+    if yolo_model is not None:
         try:
-            yolo = self._load_yolo()
-            results = yolo(
-                image_path,
-                conf=CV.yolo_conf_threshold,
-                verbose=False,
-            )
-            names = results[0].names if results else {}
-            # 取置信度 Top-K 类别（去重）
-            seen: list[str] = []
-            if results and results[0].boxes is not None:
-                boxes = results[0].boxes
-                order = boxes.conf.argsort(descending=True).tolist()
-                for i in order:
-                    cls_id = int(boxes.cls[i].item())
-                    cls_name = names.get(cls_id, f"cls_{cls_id}")
-                    interest = self._object_to_interest.get(cls_name, cls_name)
-                    if interest not in seen:
-                        seen.append(interest)
-                    if len(seen) >= CV.yolo_top_k:
-                        break
-            return seen
+            results = yolo_model(image_input)
+            for r in results:
+                for box in r.boxes:
+                    cls_id = int(box.cls[0])
+                    class_name = yolo_model.names[cls_id]
+                    detected_objects.append(class_name)
+                    
+                    # 映射到兴趣标签
+                    if class_name in config.OBJECT_INTEREST_MAPPING:
+                        tag = config.OBJECT_INTEREST_MAPPING[class_name]
+                        if tag not in extracted_tags:
+                            extracted_tags.append(tag)
         except Exception as e:
-            logger.warning("YOLOv8 检测失败，返回空列表：%s", e)
-            return []
+            logger.error(f"YOLOv8 推理异常: {e}")
+
+    # --- 2. 启发式 / ResNet 场景判定 ---
+    # 如果检测到电脑/书本 -> 图书馆/自习室
+    if "laptop" in detected_objects or "book" in detected_objects:
+        detected_scene = "图书馆/自习室"
+    # 如果检测到球类/运动器材 -> 操场
+    elif "sports ball" in detected_objects or "racket" in detected_objects:
+        detected_scene = "操场跑道"
+    # 如果检测到杯子/餐具 -> 食堂/咖啡厅
+    elif "cup" in detected_objects or "bowl" in detected_objects:
+        detected_scene = "食堂/校园咖啡厅"
+    else:
+        detected_scene = "校园公共区域"
+
+    # 保底：若没识别出标签，根据场景补齐默认标签
+    if not extracted_tags:
+        if detected_scene == "图书馆/自习室":
+            extracted_tags = ["赶论文/刷题", "安静自习"]
+        elif detected_scene == "操场跑道":
+            extracted_tags = ["跑步/运动", "户外组队"]
+        else:
+            extracted_tags = ["破冰交流", "找搭子"]
+
+    return {
+        "detected_scene": detected_scene,
+        "detected_objects": list(set(detected_objects)),
+        "extracted_tags": extracted_tags
+    }
 
 
-# 便捷单例
-_default_perceiver = CVPerceiver()
+def fuse_multimodal_inputs(text_intent: str, user_interests: list, image_input) -> dict:
+    """
+    多模态融合函数：将文字意图、手动兴趣与视觉感知结果融合
+    """
+    cv_result = analyze_image(image_input)
+    
+    # 融合兴趣标签
+    final_tags = list(set(user_interests + cv_result["extracted_tags"]))
+    
+    # 确认当下场景
+    final_scene = cv_result["detected_scene"]
+    if final_scene == "未知场景" or final_scene == "校园公共区域":
+        # 如果图片没判定出来，从文字推导
+        if "跑" in text_intent or "操场" in text_intent:
+            final_scene = "操场跑道"
+        elif "图书馆" in text_intent or "高数" in text_intent or "赶作业" in text_intent:
+            final_scene = "图书馆/自习室"
+        elif "火锅" in text_intent or "食堂" in text_intent or "吃" in text_intent:
+            final_scene = "食堂/餐厅"
+        else:
+            final_scene = "校园大门/看台"
 
-
-def perceive(image_path: str | Path) -> dict[str, Any]:
-    """模块级快捷函数。"""
-    return _default_perceiver.perceive(image_path)
+    return {
+        "final_scene": final_scene,
+        "final_tags": final_tags,
+        "cv_details": cv_result
+    }

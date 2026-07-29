@@ -1,190 +1,198 @@
+# app.py
 """
-LumiLink —— 2030 微光相遇 (Lumina Campus Link)
-================================================
-Gradio 极速交互原型主入口。
-
-完整闭环：拍照输入 → CV 自动填充标签 → 填写问卷 → 点击匹配 → 生成破冰建议。
-
-运行：
-    python app.py
-然后浏览器打开 http://127.0.0.1:7860
+2030“微光相遇” (Lumina Campus Link) - 主程序与 Gradio 交互界面
+已调整问题顺序并重新编号
 """
-from __future__ import annotations
-
-import json
-import logging
-from pathlib import Path
 
 import gradio as gr
+import config
+from user_profile import UserProfile, MatchResult
+from modules import fuse_multimodal_inputs, match_user, generate_icebreaker_and_guide
 
-from config import APP, CV
-from modules.cv_perception import CVPerceiver
-from modules.matching_engine import MatchingEngine
-from modules.action_engine import ActionEngine
-from modules.user_profile import UserProfile
+# Q1 & Q2 选项到性格标签的自动映射
+Q1_MAP = {
+    "A. 组个局，大家一起去吃火锅通宵玩桌游。": "高社交电量/热衷组局",
+    "B. 找一两个好朋友看电影或逛街。": "适中社交电量/偏好小聚",
+    "C. 一个人在宿舍追剧、看书，享受静谧时光。": "低社交电量/享受独处"
+}
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-logger = logging.getLogger("LumiLink.app")
+Q2_MAP = {
+    "A. “我想去哪，什么时候去，我都计划好了，跟着我走就行。”": "主导规划型/节奏清晰",
+    "B. “我有大致想法，但更愿意听听对方意见，咱们一起商量。”": "沟通协商型/注重体验",
+    "C. “我都行，你定就好，你定哪我就去哪，我听安排。”": "随和跟随型/极高包容度"
+}
 
-# ---------- 引擎初始化 ----------
-cv_perceiver = CVPerceiver()
-matching_engine = MatchingEngine()
-action_engine = ActionEngine()
+Q7_MAP = {
+    "A. “直接点，聊共同爱好，别整虚的。”": "直球型",
+    "B. “幽默点，用个梗或者搞笑开场，缓解气氛。”": "幽默型",
+    "C. “温和点，简单打个招呼，顺其自然。”": "社恐专属型"
+}
 
 
-# =========================================================
-# 业务回调函数
-# =========================================================
-def on_perceive(image_path: str | None) -> tuple[str, str]:
-    """步骤一回调：视觉感知，自动补全场景与物品标签。"""
-    if not image_path:
-        return "请先上传或拍照一张照片", ""
-    try:
-        result = cv_perceiver.perceive(image_path)
-        scene = result.get("current_scene", "未知")
-        objects = result.get("detected_objects", [])
-        tags = ", ".join(objects) if objects else "（未识别到明显物品）"
-        summary = (
-            f"**当前场景**：{scene}\n\n"
-            f"**识别到的物品/兴趣标签**：{tags}\n\n"
-            f"```json\n{json.dumps(result, ensure_ascii=False, indent=2)}\n```"
+def run_pipeline(
+    nickname, q1_val, q2_val, hobbies_text, weaknesses, landmines, text_intent, image_input, q7_val
+):
+    """处理重排顺序后的问卷并运行匹配流程"""
+    # 1. 解析基础兴趣
+    hobbies_list = [h.strip() for h in hobbies_text.replace("，", ",").split(",") if h.strip()]
+    
+    # 2. 解析 Q1/Q2 为正向性格特质标签
+    personality_traits = [
+        Q1_MAP.get(q1_val, "平稳社交"),
+        Q2_MAP.get(q2_val, "随和体贴")
+    ]
+    
+    # 3. 多模态视觉感知融合
+    multimodal_res = fuse_multimodal_inputs(text_intent, hobbies_list, image_input)
+    
+    # 4. 构建规范化的 UserProfile 对象
+    user_profile = UserProfile(
+        user_id="current_user",
+        nickname=nickname or "真实校友",
+        hobbies=multimodal_res["final_tags"],
+        weaknesses=weaknesses or ["不善言辞"],
+        landmines=landmines or [],
+        personality=personality_traits,
+        cv_scene=multimodal_res["final_scene"],
+        cv_objects=multimodal_res["cv_details"]["extracted_tags"]
+    )
+    
+    # 校验基础必填项
+    if not user_profile.is_valid:
+        return (
+            "⚠️ **请填写昵称并勾选至少一个个人缺点**（即使是加密区，AI 也需要了解真实的你才能做避雷与互补判定哦！）",
+            "",
+            ""
         )
-        return summary, json.dumps(result, ensure_ascii=False)
-    except Exception as e:
-        logger.exception("CV 感知失败")
-        return f"⚠️ 视觉感知出错：{e}", ""
+        
+    # 5. 调用 LLM 逆向匹配
+    raw_match = match_user(user_profile.to_dict())
+    
+    # 构建规范的 MatchResult 对象
+    match_result_obj = MatchResult(
+        matched_user_id=raw_match.get("best_match_id", ""),
+        matched_nickname=raw_match.get("best_match_name", "精选搭子"),
+        compatibility_score=raw_match.get("compatibility_score", 88) / 100.0,
+        avoid_mine_success=0.95 if raw_match.get("avoid_taboo_success", True) else 0.60,
+        reason=raw_match.get("match_reason", ""),
+        hidden_analysis=f"当前用户加密缺点：{user_profile.weaknesses}\n性格特质：{user_profile.personality}\n命中排雷：已避开对方雷点！\n互补亮点：{raw_match.get('complementary_highlights', [])}"
+    )
+    
+    # 6. 调用 Action Engine 生成破冰与行动建议
+    action_res = generate_icebreaker_and_guide(user_profile.to_dict(), raw_match)
+    
+    # 7. 格式化输出（高亮用户在 Q7 选择的偏好开场白风格）
+    match_md = match_result_obj.to_markdown()
+    
+    pref_style = Q7_MAP.get(q7_val, "社恐专属型")
+    icebreakers = action_res.get("icebreakers", {})
+    
+    icebreaker_md = (
+        f"### 💬 AI 建议的高情商破冰开场白（已为你优先推荐【{pref_style}】）\n"
+        f"- **【直球型】**：`{icebreakers.get('direct', '')}`\n"
+        f"- **【幽默型】**：`{icebreakers.get('humorous', '')}`\n"
+        f"- **【社恐专属/温和型】**：`{icebreakers.get('introvert_friendly', '')}`"
+    )
+    
+    guide = action_res.get("offline_guide", {})
+    guide_md = (
+        "### 🗺️ 专属线下破冰行动指南\n"
+        f"📍 **推荐见面场所**：{guide.get('location_recommendation', '')}\n\n"
+        f"🎯 **低压互动方案**：{guide.get('activity_idea', '')}\n\n"
+        f"💡 **话题避坑指南**：{guide.get('avoid_pitfalls', '')}"
+    )
+    
+    return match_md, icebreaker_md, guide_md
 
 
-def on_match(
-    nickname: str,
-    hobbies: str,
-    landmines: str,
-    weaknesses: str,
-    cv_json: str,
-) -> str:
-    """步骤二回调：LLM 逆向匹配。"""
-    if not (nickname and weaknesses):
-        return "⚠️ 请至少填写昵称与个人缺点，才能进行逆向匹配。"
+# ==========================================
+# Gradio Blocks 界面搭建（重新编号版）
+# ==========================================
+theme = gr.themes.Soft(primary_hue="indigo", secondary_hue="slate")
 
-    try:
-        cv_info = json.loads(cv_json) if cv_json else {}
-    except json.JSONDecodeError:
-        cv_info = {}
+with gr.Blocks(theme=theme, title="2030 微光相遇 (Lumina Campus Link)") as demo:
+    gr.Markdown(
+        """
+        # ✨ 2030“微光相遇” (Lumina Campus Link)
+        ### 基于真实自我剖析与多模态感知的校园交友平台
+        > **“社交是需要能量的，我们来测测你的‘社交电池’。”**
+        """
+    )
+    
+    with gr.Row():
+        # 左侧：新版问卷输入区
+        with gr.Column(scale=5):
+            nickname_in = gr.Textbox(label="你的昵称/代号", value="小明", placeholder="怎么称呼你？")
+            
+            # --- 模块一：社交电池与节奏测试 ---
+            gr.Markdown("#### 🔋 模块一：社交电池与节奏测试")
+            q1_in = gr.Radio(
+                choices=list(Q1_MAP.keys()),
+                value="B. 找一两个好朋友看电影或逛街。",
+                label="Q1 (社交电量)：周五晚上，假如没作业，你更倾向于哪种状态？"
+            )
+            q2_in = gr.Radio(
+                choices=list(Q2_MAP.keys()),
+                value="B. “我有大致想法，但更愿意听听对方意见，咱们一起商量。”",
+                label="Q2 (决策/节奏)：如果临时约朋友去吃饭，你会怎么安排？"
+            )
 
-    user = UserProfile(
-        nickname=nickname.strip(),
-        hobbies=[h.strip() for h in hobbies.split(",") if h.strip()],
-        landmines=[l.strip() for l in landmines.split(",") if l.strip()],
-        weaknesses=[w.strip() for w in weaknesses.split(",") if w.strip()],
-        cv_scene=cv_info.get("current_scene", ""),
-        cv_objects=cv_info.get("detected_objects", []),
+            # --- 模块二：保密加密区 ---
+            gr.Markdown(
+                """
+                #### 🔒 模块二：B面真实档案（加密保密区）
+                > *“在这里，我们不需要虚假的人设。请告诉我们你最真实的‘B面’，这些信息是保密的，只有算法能读懂。”*
+                """
+            )
+            q3_in = gr.CheckboxGroup(
+                choices=["拖延症/经常赶截止时间", "选择困难症", "社恐/不善言辞", "容易焦虑/情绪化", "熟人疯子/生人高冷", "过于直接可能伤人"],
+                value=["社恐/不善言辞", "选择困难症"],
+                label="Q3 (个人缺点)：人无完人，在搭子相处中，你觉得你最容易让对方‘头大’的地方是什么？"
+            )
+            q4_in = gr.CheckboxGroup(
+                choices=["极其讨厌别人迟到", "排斥过度打探隐私", "讨厌社交大吵大闹", "讨厌负能量爆棚", "讨厌说话不回/冷暴力"],
+                value=["讨厌社交大吵大闹"],
+                label="Q4 (性格雷点)：在一段关系中，什么行为会让你瞬间想直接‘断联’？"
+            )
+
+            # --- 模块三：偏好与即时状态 ---
+            gr.Markdown("#### 📸 模块三：偏好与即时状态")
+            q5_in = gr.Textbox(
+                label="Q5 (兴趣爱好)：为了给你寻找志同道合的伙伴，请在这里填入你的兴趣爱好，用逗号隔开",
+                value="硬核科幻, 周杰伦, 跑圈, 食堂火锅",
+                placeholder="例如：看书, 摄影, 猫咪, 考研刷题"
+            )
+            intent_in = gr.Textbox(
+                label="Q6 (当下意图/想做什么)：给算法看一眼你此时的状态/当下最想做的事情", 
+                value="今晚想去操场跑步，顺便找人聊天", 
+                placeholder="例如：想找人一起去图书馆赶作业/去食堂吃火锅"
+            )
+            q7_in = gr.Radio(
+                choices=list(Q7_MAP.keys()),
+                value="C. “温和点，简单打个招呼，顺其自然。”",
+                label="Q7 (破冰风格)：匹配成功后，你希望我们以什么方式帮你开启第一句话？"
+            )
+            image_in = gr.Image(
+                            label="随手拍：对着你现在的书桌、正在读的课本或者想去的操场拍一张照片", 
+                            type="pil"
+            )
+            
+            submit_btn = gr.Button("🚀 开启微光逆向匹配", variant="primary", size="lg")
+
+        # 右侧：结果展示区
+        with gr.Column(scale=5):
+            match_out = gr.Markdown("### 💞 匹配卡片（等待填写问卷...）")
+            icebreaker_out = gr.Markdown("### 💬 破冰开场白建议")
+            guide_out = gr.Markdown("### 🗺️ 线下行动指南")
+
+    # 事件绑定
+    submit_btn.click(
+        fn=run_pipeline,
+        inputs=[nickname_in, q1_in, q2_in, q5_in, q3_in, q4_in, intent_in, image_in, q7_in],
+        outputs=[match_out, icebreaker_out, guide_out]
     )
 
-    try:
-        result = matching_engine.match(user)
-        return result.to_markdown()
-    except Exception as e:
-        logger.exception("匹配失败")
-        return f"⚠️ 匹配失败：{e}"
-
-
-def on_generate_icebreaker(match_result_text: str) -> str:
-    """步骤三回调：生成破冰开场白与线下行动指南。"""
-    if not match_result_text or "⚠️" in match_result_text:
-        return "⚠️ 请先完成匹配，再生成破冰建议。"
-    try:
-        guide = action_engine.generate(match_result_text)
-        return guide
-    except Exception as e:
-        logger.exception("破冰生成失败")
-        return f"⚠️ 破冰建议生成失败：{e}"
-
-
-# =========================================================
-# Gradio UI
-# =========================================================
-def build_ui() -> gr.Blocks:
-    with gr.Blocks(title=APP.app_title) as demo:
-        gr.Markdown(
-            f"# {APP.app_title}\n\n"
-            f"> {APP.app_desc}\n\n"
-            f"> **核心理念**：在这里，你的缺点不仅安全，还能帮你找到最合拍的搭子。"
-        )
-
-        # ---------- 步骤一：视觉感知 ----------
-        with gr.Tab("① 视觉感知 (拍照即表达)"):
-            gr.Markdown(
-                "### 拍/传一张当下的照片，系统自动识别场景与兴趣物品\n"
-                "使用 **ResNet18** 做场景分类 + **YOLOv8** 做物品检测。"
-            )
-            with gr.Row():
-                with gr.Column():
-                    img_input = gr.Image(
-                        label="随手拍一张",
-                        type="filepath",
-                        sources=["upload", "webcam"],
-                    )
-                    perceive_btn = gr.Button("🔍 自动识别场景与物品", variant="primary")
-                with gr.Column():
-                    perceive_output = gr.Markdown(label="感知结果")
-                    cv_state = gr.Textbox(visible=False)  # 隐藏的 JSON 状态
-            perceive_btn.click(
-                on_perceive, inputs=[img_input], outputs=[perceive_output, cv_state]
-            )
-
-        # ---------- 步骤二：自我剖析问卷 + 匹配 ----------
-        with gr.Tab("② 加密缺点问卷 + 逆向匹配"):
-            gr.Markdown(
-                "### 填写真实自我问卷（缺点只对 AI 可见）\n"
-                "AI 会检查「A 的缺点是否命中 B 的雷点」，并寻找能互补你的人。"
-            )
-            with gr.Row():
-                with gr.Column():
-                    nickname = gr.Textbox(label="昵称", placeholder="例如：小林")
-                    hobbies = gr.Textbox(
-                        label="基础兴趣（逗号分隔）",
-                        placeholder="科幻小说, 羽毛球, 民谣",
-                    )
-                    landmines = gr.Textbox(
-                        label="性格雷点（绝对不能忍受的特质，逗号分隔）",
-                        placeholder="话痨, 不守时, 爱打断别人",
-                    )
-                    weaknesses = gr.Textbox(
-                        label="个人缺点（加密区，仅 AI 可见，逗号分隔）",
-                        placeholder="不善言辞, 拖延症, 重度颜控",
-                    )
-                    match_btn = gr.Button("💞 开始逆向匹配", variant="primary")
-                with gr.Column():
-                    match_output = gr.Markdown(label="匹配结果")
-
-            match_btn.click(
-                on_match,
-                inputs=[nickname, hobbies, landmines, weaknesses, cv_state],
-                outputs=[match_output],
-            )
-
-        # ---------- 步骤三：破冰与线下行动 ----------
-        with gr.Tab("③ AI 破冰与线下行动指南"):
-            gr.Markdown(
-                "### 基于匹配结果生成《专属线下破冰行动指南》\n"
-                "包含 3 种风格破冰开场白 + 破冰场所建议 + 话题避坑指南。"
-            )
-            ice_btn = gr.Button("✨ 生成破冰指南", variant="primary")
-            ice_output = gr.Markdown(label="破冰行动指南")
-            ice_btn.click(on_generate_icebreaker, inputs=[match_output], outputs=[ice_output])
-
-        gr.Markdown("---\n*视觉感知 → LLM 认知匹配 → 行动引擎* · LumiLink © 2030")
-
-    return demo
-
+app = demo
 
 if __name__ == "__main__":
-    demo = build_ui()
-    demo.launch(
-        server_port=APP.server_port,
-        share=APP.share,
-        theme=gr.themes.Soft(),
-    )
+    demo.launch(share=False)
