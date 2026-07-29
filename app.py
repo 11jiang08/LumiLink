@@ -3,7 +3,6 @@
 2030“微光相遇” (Lumina Campus Link) - 主程序与 Gradio 交互界面
 """
 
-import time
 import gradio as gr
 import config
 from user_profile import UserProfile, MatchResult
@@ -34,7 +33,7 @@ MAX_HOBBIES = 5  # 最多支持预设的兴趣框数量
 def add_hobby_input(current_count):
     """点击按钮后，增加显示一个兴趣爱好输入框"""
     new_count = min(current_count + 1, MAX_HOBBIES)
-    # 根据新的数量返回各个输入框的显示状态 (Visible)
+    # 根据新的数量更新各个输入框的显示状态 (Visible)
     updates = [gr.update(visible=(i < new_count)) for i in range(MAX_HOBBIES)]
     return [new_count] + updates
 
@@ -45,7 +44,7 @@ def run_pipeline(
     weaknesses, landmines, text_intent, image_input, q7_val
 ):
     """处理重排顺序后的问卷并运行匹配流程"""
-    # 1. 收集并过滤非空的兴趣爱好
+    # 1. 收集并过滤非空的兴趣爱好（彻底避免死数据注入）
     raw_hobbies = [h1, h2, h3, h4, h5]
     hobbies_list = [h.strip() for h in raw_hobbies if h and h.strip()]
     if not hobbies_list:
@@ -57,7 +56,7 @@ def run_pipeline(
         Q2_MAP.get(q2_val, "随和体贴")
     ]
     
-    # 3. 多模态视觉感知融合（如果意图为空，使用默认意图）
+    # 3. 多模态视觉感知融合（若意图未填，走默认占位提示）
     final_intent = text_intent.strip() if text_intent and text_intent.strip() else "今晚想去操场跑步，顺便找人聊天"
     multimodal_res = fuse_multimodal_inputs(final_intent, hobbies_list, image_input)
     
@@ -75,7 +74,6 @@ def run_pipeline(
     
     # 校验基础必填项
     if not user_profile.is_valid:
-        # 复原按钮状态并返回提示
         btn_update = gr.update(value="🚀 开启微光逆向匹配", elem_classes=["normal-btn"])
         return (
             "⚠️ **请填写昵称并勾选至少一个个人缺点**（即使是加密区，AI 也需要了解真实的你才能做避雷与互补判定哦！）",
@@ -121,18 +119,18 @@ def run_pipeline(
         f"💡 **话题避坑指南**：{guide.get('avoid_pitfalls', '')}"
     )
     
-    # 计算完成后将按钮重置回初始样式
+    # 匹配计算完成后复原按钮样式
     btn_update = gr.update(value="🚀 开启微光逆向匹配", elem_classes=["normal-btn"])
     
     return match_md, icebreaker_md, guide_md, btn_update
 
 
 def set_button_loading():
-    """点击匹配时立即调用的前置函数：改变按钮文字和样式为变红过渡态"""
+    """点击匹配时立即调用的前置函数：改变按钮文字和样式为红色动效态"""
     return gr.update(value="正在微光逆向匹配......", elem_classes=["matching-btn"])
 
 
-# 自定义 CSS 样式：控制按钮点击变红及平滑过渡
+# 自定义 CSS 样式
 custom_css = """
 .normal-btn {
     background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
@@ -149,6 +147,16 @@ custom_css = """
     0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
     70% { transform: scale(1.02); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
     100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+/* 右侧预留占位卡片样式 */
+.result-card-placeholder {
+    border: 2px dashed #cbd5e1 !important;
+    background-color: #f8fafc !important;
+    border-radius: 12px !important;
+    padding: 16px 20px !important;
+    margin-bottom: 16px !important;
+    min-height: 120px !important;
 }
 """
 
@@ -188,7 +196,7 @@ with gr.Blocks(theme=theme, css=custom_css, title="2030 微光相遇 (Lumina Cam
             gr.Markdown(
                 """
                 #### 🔒 模块二：B面真实档案（加密保密区）
-                > *“在这里，我们不需要虚假的人设。请告诉我们你最真实的‘B面’，这些信息是为你严格保密的。”*
+                > *“在这里，我们不需要虚假的人设。请告诉我们你最真实的‘B面’，这些信息是保密的，只有算法能读懂。”*
                 """
             )
             q3_in = gr.CheckboxGroup(
@@ -205,21 +213,21 @@ with gr.Blocks(theme=theme, css=custom_css, title="2030 微光相遇 (Lumina Cam
             # --- 模块三：偏好与即时状态 ---
             gr.Markdown("#### 📸 模块三：偏好与即时状态")
             
-            gr.Markdown("**Q5 (兴趣爱好)：为了给你寻找志同道合的伙伴，请在这里填入你的兴趣爱好（最多5项）**")
-            # 动态兴趣输入框组（默认显示 1 个，最多 5 个）
+            gr.Markdown("**Q5 (兴趣爱好)：为了给你寻找志同道合的伙伴，请在这里填入你的兴趣爱好**")
+            # 动态兴趣输入框组（完全清空 value，避免静默数据污染）
             hobby_inputs = []
             hobby_inputs.append(gr.Textbox(label="兴趣 1", value="", placeholder="例如：硬核科幻", visible=True))
-            hobby_inputs.append(gr.Textbox(label="兴趣 2", value="", placeholder="例如：周杰伦", visible=False))
-            hobby_inputs.append(gr.Textbox(label="兴趣 3", value="", placeholder="输入一个兴趣爱好", visible=False))        
-            hobby_inputs.append(gr.Textbox(label="兴趣 4", placeholder="输入一个兴趣爱好", visible=False))
-            hobby_inputs.append(gr.Textbox(label="兴趣 5", placeholder="输入一个兴趣爱好", visible=False))
+            hobby_inputs.append(gr.Textbox(label="兴趣 2", value="", placeholder="例如：夜跑", visible=False))
+            hobby_inputs.append(gr.Textbox(label="兴趣 3", value="", placeholder="例如：摄影", visible=False))
+            hobby_inputs.append(gr.Textbox(label="兴趣 4", value="", placeholder="例如：猫咪", visible=False))
+            hobby_inputs.append(gr.Textbox(label="兴趣 5", value="", placeholder="例如：火锅", visible=False))
             
             add_hobby_btn = gr.Button("➕ 添加兴趣爱好", size="sm")
 
             intent_in = gr.Textbox(
                 label="Q6 (当下意图/想做什么)：给算法看一眼你此时的状态/当下最想做的事情", 
-                value="", # 置空 value
-                placeholder="今晚想去操场跑步，顺便找人聊天" # 使用灰色占位符提示
+                value="", 
+                placeholder="今晚想去操场跑步，顺便找人聊天"
             )
             image_in = gr.Image(
                 label="随手拍：对着你现在的书桌、正在读的课本或者想去的操场拍一张照片", 
@@ -233,11 +241,37 @@ with gr.Blocks(theme=theme, css=custom_css, title="2030 微光相遇 (Lumina Cam
             
             submit_btn = gr.Button("🚀 开启微光逆向匹配", variant="primary", size="lg", elem_classes=["normal-btn"])
 
-        # 右侧：结果展示区
+        # 右侧：结果展示区（未匹配时展现虚线卡片）
         with gr.Column(scale=5):
-            match_out = gr.Markdown("### 💞 匹配卡片（等待填写问卷...）")
-            icebreaker_out = gr.Markdown("### 💬 破冰开场白建议")
-            guide_out = gr.Markdown("### 🗺️ 线下行动指南")
+            match_out = gr.Markdown(
+                """
+                ### 💞 最佳搭子卡片
+                > *⏳ 尚无匹配数据*
+                > 
+                > 请在左侧填写你的“社交电池”问卷并上传随手拍，AI 将为你精准排雷并寻找互补校友。
+                """,
+                elem_classes=["result-card-placeholder"]
+            )
+            
+            icebreaker_out = gr.Markdown(
+                """
+                ### 💬 高情商破冰建议
+                > *⏳ 等待匹配生成*
+                > 
+                > 匹配成功后，这里将针对你选定的破冰风格生成专属开场白。
+                """,
+                elem_classes=["result-card-placeholder"]
+            )
+            
+            guide_out = gr.Markdown(
+                """
+                ### 🗺️ 线下行动指南
+                > *⏳ 等待场景解析*
+                > 
+                > 结合你的即时状态与当下场景，AI 为你制定低压力的见面场所与避坑提示。
+                """,
+                elem_classes=["result-card-placeholder"]
+            )
 
     # --- 事件绑定 ---
     
@@ -248,7 +282,7 @@ with gr.Blocks(theme=theme, css=custom_css, title="2030 微光相遇 (Lumina Cam
         outputs=[hobby_count_state] + hobby_inputs
     )
     
-    # 2. 点击匹配按钮：链式触发 (先把按钮变红 + 改字 -> 再运行后端 pipeline)
+    # 2. 点击匹配按钮：链式触发 (改变按钮状态 -> 执行匹配逻辑)
     submit_btn.click(
         fn=set_button_loading,
         inputs=None,
