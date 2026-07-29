@@ -144,7 +144,7 @@ def evaluate(
 # =========================================================
 def main() -> None:
     parser = argparse.ArgumentParser(description="LumiLink 校园场景分类训练")
-    parser.add_argument("--epochs", type=int, default=15, help="训练轮数")
+    parser.add_argument("--epochs", type=int, default=25, help="训练轮数")
     parser.add_argument("--batch-size", type=int, default=32, help="批大小")
     parser.add_argument("--lr", type=float, default=1e-3, help="学习率")
     parser.add_argument("--val-ratio", type=float, default=0.2, help="验证集占比")
