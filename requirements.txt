@@ -1,0 +1,17 @@
+# ===== Web 交互层 =====
+gradio>=4.19.0
+
+# ===== 视觉感知层 (CV Perception Layer) =====
+# ResNet18 场景分类 + YOLOv8 物品检测
+ultralytics>=8.1.0          # YOLOv8 官方库
+torch>=2.0.0
+torchvision>=0.15.0
+opencv-python>=4.8.0
+Pillow>=10.0.0
+numpy>=1.24.0
+
+# ===== LLM Agent 层 =====
+openai>=1.12.0              # 兼容 DeepSeek / GPT-4o 等接口
+
+# ===== 工具链 =====
+python-dotenv>=1.0.0
