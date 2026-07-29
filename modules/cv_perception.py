@@ -3,8 +3,8 @@ CV 感知层 (CV Perception Layer)
 ================================
 目标：无感获取用户当下的状态与兴趣。
 
-- ResNet18：轻量快速的场景分类（操场 / 图书馆 / 食堂 / 宿舍 / 教室 / 猫咖 …）
-- YOLOv8：图文复合识别，提取画面中的关键物品（羽毛球拍、科幻小说、咖啡 …）
+- ResNet18：场景分类（操场 / 图书馆 / 食堂 / 宿舍 / 教室 / 猫咖）
+- YOLOv8：图文复合识别，提取画面中的关键物品（羽毛球拍、书本、咖啡 …）
 
 输出结构化 JSON：
     {
@@ -12,8 +12,11 @@ CV 感知层 (CV Perception Layer)
         "detected_objects": ["hotpot", "coke"]
     }
 
-说明：为降低高中生演示门槛，本模块默认使用 torchvision 预训练 ResNet18
-      + YOLOv8n 官方 COCO 权重。后续可替换为自训练的校园场景权重。
+权重加载策略：
+- 优先加载 models/scene_resnet18.pt（自训练 6 类校园场景权重，准确率高）。
+- 若该文件不存在，自动回退到 torchvision 预训练 ResNet18 + 关键词规则映射（兜底）。
+- YOLOv8 始终使用官方 COCO 权重（yolov8n.pt），无需自训练。
+- 训练脚本见 training/train_scene.py。
 """
 from __future__ import annotations
 
@@ -33,6 +36,12 @@ class CVPerceiver:
         self._resnet = None
         self._yolo = None
         self._scene_labels = CV.scene_labels
+        # 标记当前 ResNet 是否走自训练模式
+        self._use_custom_resnet: bool = False
+        # 自训练模式下的类别顺序（来自 checkpoint["classes"]）
+        self._custom_classes: list[str] = []
+        # ImageNet 兜底模式下的 1000 类标签
+        self._imagenet_labels: list[str] = []
         # 物品 -> 兴趣标签 的映射（COCO 类别子集，演示用）
         self._object_to_interest: dict[str, str] = {
             "book": "阅读/小说",
@@ -51,20 +60,12 @@ class CVPerceiver:
 
     # ---------- 模型懒加载 ----------
     def _load_resnet(self):
+        """优先加载自训练场景权重；不存在则回退到 ImageNet 预训练。"""
         if self._resnet is None:
             import torch
             from torchvision import models, transforms
 
-            logger.info("加载 ResNet18 预训练权重 ...")
-            weights = (
-                models.ResNet18_Weights.DEFAULT
-                if CV.resnet_weights is None
-                else None
-            )
-            model = models.resnet18(weights=weights)
-            model.eval()
-            self._resnet = model
-            self._resnet_transform = transforms.Compose(
+            transform = transforms.Compose(
                 [
                     transforms.ToPILImage(),
                     transforms.Resize((224, 224)),
@@ -75,12 +76,35 @@ class CVPerceiver:
                     ),
                 ]
             )
-            # 若未自训练，使用 ImageNet 1000 类做近似映射
-            self._imagenet_labels = (
-                models.ResNet18_Weights.DEFAULT.meta["categories"]
-                if weights is not None
-                else []
-            )
+            self._resnet_transform = transform
+
+            custom_path = CV.scene_model_path
+            if custom_path.exists():
+                # ===== 自训练模式 =====
+                logger.info("加载自训练场景权重：%s", custom_path)
+                checkpoint = torch.load(custom_path, map_location="cpu")
+                classes = list(checkpoint.get("classes", CV.scene_labels))
+                model = models.resnet18(weights=None)
+                model.fc = torch.nn.Linear(model.fc.in_features, len(classes))
+                model.load_state_dict(checkpoint["state_dict"])
+                model.eval()
+                self._resnet = model
+                self._custom_classes = classes
+                self._use_custom_resnet = True
+                logger.info("自训练模式启用，类别数=%d", len(classes))
+            else:
+                # ===== ImageNet 兜底模式 =====
+                logger.warning(
+                    "未找到自训练权重 %s，回退到 ImageNet 预训练 + 规则映射。"
+                    "建议运行 training/train_scene.py 训练专用权重以提升准确率。",
+                    custom_path,
+                )
+                weights = models.ResNet18_Weights.DEFAULT
+                model = models.resnet18(weights=weights)
+                model.eval()
+                self._resnet = model
+                self._imagenet_labels = weights.meta["categories"]
+                self._use_custom_resnet = False
         return self._resnet
 
     def _load_yolo(self):
@@ -104,14 +128,12 @@ class CVPerceiver:
 
     # ---------- ResNet18 场景分类 ----------
     def _classify_scene(self, image_path: str) -> str:
-        """对当前演示版，用 ImageNet 预训练结果做规则映射到自定义场景标签。"""
+        """根据当前模式（自训练 / ImageNet 兜底）输出场景标签。"""
         try:
             import torch
+            import cv2
 
             model = self._load_resnet()
-            import cv2
-            import numpy as np
-
             bgr = cv2.imread(image_path)
             if bgr is None:
                 return "未知"
@@ -121,9 +143,15 @@ class CVPerceiver:
             with torch.no_grad():
                 logits = model(tensor)
                 idx = int(logits.argmax(1).item())
-            label = self._imagenet_labels[idx] if self._imagenet_labels else ""
 
-            # ImageNet 标签 -> 校园场景 的简单规则映射
+            if self._use_custom_resnet:
+                # ===== 自训练模式：直接输出类别名 =====
+                if 0 <= idx < len(self._custom_classes):
+                    return self._custom_classes[idx]
+                return "未知"
+
+            # ===== ImageNet 兜底模式：用规则关键词映射到校园场景 =====
+            label = self._imagenet_labels[idx] if self._imagenet_labels else ""
             label_lower = label.lower()
             if any(k in label_lower for k in ("library", "bookshop", "book")):
                 return "library_study"
