@@ -7,6 +7,7 @@ import gradio as gr
 import config
 from user_profile import UserProfile, MatchResult
 from modules import fuse_multimodal_inputs, match_user, generate_icebreaker_and_guide
+from modules.emotion_analyzer import EmotionAnalyzer
 
 # Q1 & Q2 选项到性格标签的自动映射
 Q1_MAP = {
@@ -128,6 +129,35 @@ def run_pipeline(
 def set_button_loading():
     """点击匹配时立即调用的前置函数：改变按钮文字和样式为红色动效态"""
     return gr.update(value="正在微光逆向匹配......", elem_classes=["matching-btn"])
+
+
+# 全局仪容分析器实例（懒加载，避免影响 app 启动）
+_emotion_analyzer = None
+
+
+def run_emotion_check(image_np):
+    """仪容自检：接收摄像头/上传图片，返回 Markdown 报告并复原按钮"""
+    global _emotion_analyzer
+    if image_np is None:
+        return (
+            "⚠️ 请先拍照或上传一张正脸照片，再点击“开始仪容自检”。",
+            gr.update(value="🪞 开始仪容自检", elem_classes=["normal-btn"]),
+        )
+    try:
+        if _emotion_analyzer is None:
+            _emotion_analyzer = EmotionAnalyzer()
+        report = _emotion_analyzer.analyze(image_np)
+        return report.to_markdown(), gr.update(value="🪞 开始仪容自检", elem_classes=["normal-btn"])
+    except Exception as e:
+        return (
+            f"⚠️ 仪容自检出错：{e}",
+            gr.update(value="🪞 开始仪容自检", elem_classes=["normal-btn"]),
+        )
+
+
+def set_emotion_loading():
+    """仪容自检按钮 loading 态"""
+    return gr.update(value="正在整理仪容仪表......", elem_classes=["matching-btn"])
 
 
 # 自定义 CSS 样式
@@ -273,6 +303,26 @@ with gr.Blocks(theme=theme, css=custom_css, title="2030 微光相遇 (Lumina Cam
                 elem_classes=["result-card-placeholder"]
             )
 
+            # --- 模块四：准备见面（镜面仪容自检） ---
+            gr.Markdown("---")
+            gr.Markdown("#### 🪞 模块四：准备见面（镜面仪容自检）")
+            emotion_cam = gr.Image(
+                label="对着镜头，像照镜子一样拍一张",
+                sources=["webcam", "upload"],
+                type="numpy",
+                mirror_webcam=True,
+            )
+            emotion_btn = gr.Button("🪞 开始仪容自检", variant="primary", elem_classes=["normal-btn"])
+            emotion_out = gr.Markdown(
+                """
+                ### 🪞 仪容自检报告
+                > *⏳ 等待拍照分析*
+                >
+                > 拍照后点击“开始仪容自检”，AI 将分析你的微笑度、紧张度与眼神稳定度。
+                """,
+                elem_classes=["result-card-placeholder"]
+            )
+
     # --- 事件绑定 ---
     
     # 1. 点击添加兴趣爱好按钮
@@ -295,6 +345,17 @@ with gr.Blocks(theme=theme, css=custom_css, title="2030 微光相遇 (Lumina Cam
             q3_in, q4_in, intent_in, image_in, q7_in
         ],
         outputs=[match_out, icebreaker_out, guide_out, submit_btn]
+    )
+
+    # 3. 点击仪容自检按钮：链式触发 (改变按钮状态 -> 执行分析)
+    emotion_btn.click(
+        fn=set_emotion_loading,
+        inputs=None,
+        outputs=[emotion_btn]
+    ).then(
+        fn=run_emotion_check,
+        inputs=[emotion_cam],
+        outputs=[emotion_out, emotion_btn]
     )
 
 app = demo
