@@ -2,21 +2,20 @@
 """
 仪容自检模块 (Emotion & Composure Analyzer) - MediaPipe 1.0 Tasks API 版
 基于 FaceLandmarker 的 52 个 ARKit blendshapes（表情系数），输出三维度评分：
-1. 微笑度（mouthSmileLeft / mouthSmileRight 均值）
-2. 紧张度（browDownLeft / browDownRight 均值 + mouthPress 嘴唇紧抿）
+1. 微笑度（mouthSmileLeft / mouthSmileRight 均值，减去 mouthFrown 抵消误判）
+2. 紧张度（browDown 眉下压 + mouthPress 嘴唇紧抿 + mouthShrugLower 咬合）
 3. 眼神稳定度（eyeLook* 眼球偏移 + eyeBlink 眨眼程度）
 
-相比几何特征法，blendshapes 是 MediaPipe 专门训练的表情系数，准确度显著更高。
-支持实时流式分析：每帧调用 analyze() 约 50-100ms，可支撑 10-20fps 实时反馈。
+加滑动平均滤波器（默认 5 帧窗口）平滑三维度分数，消除帧间抖动。
 """
 
 import logging
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# 模型路径（项目根目录/models/face_landmarker.task）
 _MODEL_PATH = str(Path(__file__).parent.parent / "models" / "face_landmarker.task")
 
 
@@ -31,7 +30,40 @@ class EmotionReport:
     stability_feedback: str = ""
     overall_advice: str = ""
 
+    def to_html(self) -> str:
+        """科技感仪表盘 HTML（深色卡片 + 发光数值 + 渐变进度条）。"""
+        return f"""
+<div class="emotion-dashboard">
+  <div class="metric-card smile">
+    <div class="metric-icon">😊</div>
+    <div class="metric-label">微笑度</div>
+    <div class="metric-value">{self.smile_score}<span class="unit">%</span></div>
+    <div class="metric-bar"><div class="metric-fill" style="width:{self.smile_score}%"></div></div>
+    <div class="metric-feedback">{self.smile_feedback}</div>
+  </div>
+  <div class="metric-card tension">
+    <div class="metric-icon">😰</div>
+    <div class="metric-label">紧张度</div>
+    <div class="metric-value">{self.tension_score}<span class="unit">%</span></div>
+    <div class="metric-bar"><div class="metric-fill" style="width:{self.tension_score}%"></div></div>
+    <div class="metric-feedback">{self.tension_feedback}</div>
+  </div>
+  <div class="metric-card stability">
+    <div class="metric-icon">👀</div>
+    <div class="metric-label">眼神稳定度</div>
+    <div class="metric-value">{self.stability_score}<span class="unit">%</span></div>
+    <div class="metric-bar"><div class="metric-fill" style="width:{self.stability_score}%"></div></div>
+    <div class="metric-feedback">{self.stability_feedback}</div>
+  </div>
+</div>
+<div class="advice-card">
+  <div class="advice-title">📋 见面时的表情管理建议</div>
+  <div class="advice-body">{self.overall_advice}</div>
+</div>
+"""
+
     def to_markdown(self) -> str:
+        """Markdown 兼容输出。"""
         return (
             "### 🪞 仪容自检报告（实时）\n\n"
             f"😊 **微笑度 {self.smile_score}%** → {self.smile_feedback}\n\n"
@@ -43,10 +75,27 @@ class EmotionReport:
 
 
 class EmotionAnalyzer:
-    """基于 MediaPipe FaceLandmarker blendshapes 的面部表情分析器。"""
+    """基于 MediaPipe FaceLandmarker blendshapes 的面部表情分析器，带滑动平均滤波。"""
 
-    def __init__(self):
+    def __init__(self, smooth_window: int = 5):
         self._detector = None
+        self._smooth_window = smooth_window
+        # 三维度历史缓冲，用 deque 自动滚动窗口
+        self._smile_hist = deque(maxlen=smooth_window)
+        self._tension_hist = deque(maxlen=smooth_window)
+        self._stability_hist = deque(maxlen=smooth_window)
+
+    def reset(self):
+        """重置滤波器历史（切换用户/重新开始时调用）。"""
+        self._smile_hist.clear()
+        self._tension_hist.clear()
+        self._stability_hist.clear()
+
+    @staticmethod
+    def _smooth(value: int, history: deque) -> int:
+        """把当前值压入历史队列，返回窗口内平均值。"""
+        history.append(value)
+        return int(sum(history) / len(history))
 
     def _ensure_initialized(self):
         """懒加载 FaceLandmarker，避免影响 app 启动速度。"""
@@ -78,9 +127,9 @@ class EmotionAnalyzer:
 
     def analyze(self, image_np) -> EmotionReport:
         """
-        对一张人脸图像做三维度评分（基于 blendshapes）。
+        对一张人脸图像做三维度评分（基于 blendshapes + 滑动平均滤波）。
 
-        :param image_np: numpy ndarray (RGB, HxWx3)，来自 Gradio 的 webcam/upload
+        :param image_np: numpy ndarray (RGB, HxWx3)，来自 Gradio 的 webcam
         :return: EmotionReport
         """
         self._ensure_initialized()
@@ -105,7 +154,6 @@ class EmotionAnalyzer:
 
         # ---- 1. 微笑度：mouthSmile 均值 ----
         smile_raw = (bs.get("mouthSmileLeft", 0) + bs.get("mouthSmileRight", 0)) / 2
-        # 减去皱眉/撇嘴的负向影响（没笑却咧嘴会被 mouthFrown 抵消）
         frown = (bs.get("mouthFrownLeft", 0) + bs.get("mouthFrownRight", 0)) / 2
         smile = int(max(0, smile_raw - frown * 0.3) * 100)
         smile = max(0, min(100, smile))
@@ -113,7 +161,7 @@ class EmotionAnalyzer:
         # ---- 2. 紧张度：browDown 眉下压 + mouthPress 嘴唇紧抿 ----
         brow_down = (bs.get("browDownLeft", 0) + bs.get("browDownRight", 0)) / 2
         mouth_press = (bs.get("mouthPressLeft", 0) + bs.get("mouthPressRight", 0)) / 2
-        jaw_clench = bs.get("mouthShrugLower", 0)  # 下唇收紧近似咬合
+        jaw_clench = bs.get("mouthShrugLower", 0)
         tension = int((brow_down * 0.6 + mouth_press * 0.25 + jaw_clench * 0.15) * 100)
         tension = max(0, min(100, tension))
 
@@ -122,13 +170,15 @@ class EmotionAnalyzer:
         look_out = (bs.get("eyeLookOutLeft", 0) + bs.get("eyeLookOutRight", 0)) / 2
         look_up = (bs.get("eyeLookUpLeft", 0) + bs.get("eyeLookUpRight", 0)) / 2
         look_down = (bs.get("eyeLookDownLeft", 0) + bs.get("eyeLookDownRight", 0)) / 2
-        # 眼球偏移总量（任意方向偏移都扣分）
         gaze_shift = (look_in + look_out + look_up + look_down) / 4
-        # 眨眼也会降低稳定度（但轻微眨眼正常）
         blink = (bs.get("eyeBlinkLeft", 0) + bs.get("eyeBlinkRight", 0)) / 2
-        # 偏移权重 0.8，眨眼权重 0.2
         stability = int(100 - (gaze_shift * 160 + blink * 40))
         stability = max(0, min(100, stability))
+
+        # ---- 滑动平均滤波：平滑帧间抖动 ----
+        smile = self._smooth(smile, self._smile_hist)
+        tension = self._smooth(tension, self._tension_hist)
+        stability = self._smooth(stability, self._stability_hist)
 
         return EmotionReport(
             smile_score=smile,

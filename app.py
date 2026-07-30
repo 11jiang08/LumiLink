@@ -136,17 +136,17 @@ _emotion_analyzer = None
 
 
 def run_emotion_check(image_np):
-    """仪容自检：接收摄像头/上传图片，返回 Markdown 报告"""
+    """仪容自检：接收摄像头帧，返回科技感 HTML 仪表盘"""
     global _emotion_analyzer
     if image_np is None:
-        return "⚠️ 请先开启摄像头或上传一张正脸照片。"
+        return '<div class="emotion-placeholder">⚠️ 请先开启摄像头，对镜自检</div>'
     try:
         if _emotion_analyzer is None:
             _emotion_analyzer = EmotionAnalyzer()
         report = _emotion_analyzer.analyze(image_np)
-        return report.to_markdown()
+        return report.to_html()
     except Exception as e:
-        return f"⚠️ 仪容自检出错：{e}"
+        return f'<div class="emotion-placeholder">⚠️ 仪容自检出错：{e}</div>'
 
 
 def set_emotion_loading():
@@ -181,6 +181,73 @@ custom_css = """
     padding: 16px 20px !important;
     margin-bottom: 16px !important;
     min-height: 120px !important;
+}
+
+/* ===== 模块四：科技感仪容仪表盘 ===== */
+.emotion-dashboard {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 14px;
+}
+.metric-card {
+    background: linear-gradient(145deg, #1e293b, #0f172a);
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 14px 12px;
+    text-align: center;
+    color: #e2e8f0;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.25);
+}
+.metric-card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(15, 23, 42, 0.4); }
+.metric-icon { font-size: 24px; }
+.metric-label { font-size: 12px; color: #94a3b8; margin-top: 4px; letter-spacing: 1px; }
+.metric-value {
+    font-size: 34px;
+    font-weight: 800;
+    margin: 6px 0;
+    font-family: 'Consolas', 'Courier New', monospace;
+    line-height: 1;
+}
+.metric-value .unit { font-size: 16px; opacity: 0.7; }
+.metric-card.smile .metric-value { color: #fbbf24; text-shadow: 0 0 14px rgba(251,191,36,0.55); }
+.metric-card.tension .metric-value { color: #f87171; text-shadow: 0 0 14px rgba(248,113,113,0.55); }
+.metric-card.stability .metric-value { color: #34d399; text-shadow: 0 0 14px rgba(52,211,153,0.55); }
+.metric-bar {
+    height: 6px;
+    background: #334155;
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 8px 0;
+}
+.metric-fill {
+    height: 100%;
+    transition: width 0.35s ease;
+    border-radius: 3px;
+}
+.smile .metric-fill { background: linear-gradient(90deg, #f59e0b, #fbbf24); box-shadow: 0 0 8px rgba(251,191,36,0.6); }
+.tension .metric-fill { background: linear-gradient(90deg, #ef4444, #f87171); box-shadow: 0 0 8px rgba(248,113,113,0.6); }
+.stability .metric-fill { background: linear-gradient(90deg, #10b981, #34d399); box-shadow: 0 0 8px rgba(52,211,153,0.6); }
+.metric-feedback { font-size: 12px; color: #cbd5e1; margin-top: 6px; line-height: 1.4; }
+.advice-card {
+    background: linear-gradient(145deg, #1e293b, #0f172a);
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 14px 18px;
+    color: #e2e8f0;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.25);
+}
+.advice-title { font-size: 14px; font-weight: 700; color: #818cf8; margin-bottom: 8px; }
+.advice-body { font-size: 13px; color: #cbd5e1; line-height: 1.6; white-space: pre-line; }
+.emotion-placeholder {
+    background: linear-gradient(145deg, #1e293b, #0f172a);
+    border: 1px dashed #475569;
+    border-radius: 14px;
+    padding: 40px 20px;
+    text-align: center;
+    color: #64748b;
+    font-size: 14px;
 }
 """
 
@@ -308,14 +375,8 @@ with gr.Blocks(title="2030 微光相遇 (Lumina Campus Link)") as demo:
                 streaming=True,
             )
             emotion_btn = gr.Button("📷 截图分析当前画面", elem_classes=["normal-btn"])
-            emotion_out = gr.Markdown(
-                """
-                ### 🪞 仪容自检报告（实时）
-                > *⏳ 等待摄像头开启*
-                >
-                > 开启摄像头后 AI 将实时分析表情；也可上传照片后点“手动分析”。
-                """,
-                elem_classes=["result-card-placeholder"]
+            emotion_out = gr.HTML(
+                value='<div class="emotion-placeholder">⏳ 等待摄像头开启<br/>开启后 AI 将实时分析你的微笑度、紧张度与眼神稳定度</div>'
             )
 
     # --- 事件绑定 ---

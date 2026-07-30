@@ -4,7 +4,7 @@ import os
 # 1. 大模型 (LLM) 配置
 # ==========================================
 # 推荐使用 DeepSeek 或 OpenAI API，如果使用 OpenAI 兼容接口，修改 base_url 即可
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "sk-a6009cd2fb3c4b838fa04a4848dd4ef1") 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "sk-c1db43c59bac466cbb394947f7ab1731") 
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com/v1")  # 或 https://api.openai.com/v1
 
 LLM_MODEL = "deepseek-chat"  # 可替换为 "gpt-4o-mini" / "gpt-4o" 等
