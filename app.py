@@ -10,6 +10,7 @@ import gradio as gr
 import config
 from user_profile import UserProfile, MatchResult
 from modules import fuse_multimodal_inputs, match_user, generate_icebreaker_and_guide
+from modules.emotion_analyzer import EmotionAnalyzer
 from modules.cv_perception import analyze_image
 
 # ---------------------------------------------------------------------------
@@ -174,6 +175,35 @@ def run_pipeline(
     return match_md, icebreaker_md, guide_md, btn_update
 
 
+def set_button_loading():
+    """点击匹配时立即调用的前置函数：改变按钮文字和样式为红色动效态"""
+    return gr.update(value="正在微光逆向匹配......", elem_classes=["matching-btn"])
+
+
+# 全局仪容分析器实例（懒加载，避免影响 app 启动）
+_emotion_analyzer = None
+
+
+def run_emotion_check(image_np):
+    """仪容自检：接收摄像头帧，返回科技感 HTML 仪表盘"""
+    global _emotion_analyzer
+    if image_np is None:
+        return '<div class="emotion-placeholder">⚠️ 请先开启摄像头，对镜自检</div>'
+    try:
+        if _emotion_analyzer is None:
+            _emotion_analyzer = EmotionAnalyzer()
+        report = _emotion_analyzer.analyze(image_np)
+        return report.to_html()
+    except Exception as e:
+        return f'<div class="emotion-placeholder">⚠️ 仪容自检出错：{e}</div>'
+
+
+def set_emotion_loading():
+    """仪容自检按钮 loading 态"""
+    return gr.update(value="正在整理仪容仪表......", elem_classes=["matching-btn"])
+
+
+# 自定义 CSS 样式
 # ---------------------------------------------------------------------------
 # UI 样式配置 (Global CSS & Theme)
 # ---------------------------------------------------------------------------
@@ -208,6 +238,75 @@ custom_css = """
     min-height: 120px !important;
 }
 
+/* ===== 模块四：科技感仪容仪表盘 ===== */
+.emotion-dashboard {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+}
+.metric-card {
+    background: linear-gradient(145deg, #1e293b, #0f172a);
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 14px 12px;
+    text-align: center;
+    color: #e2e8f0;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.25);
+}
+.metric-card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(15, 23, 42, 0.4); }
+.metric-icon { font-size: 24px; }
+.metric-label { font-size: 12px; color: #94a3b8; margin-top: 4px; letter-spacing: 1px; }
+.metric-value {
+    font-size: 34px;
+    font-weight: 800;
+    margin: 6px 0;
+    font-family: 'Consolas', 'Courier New', monospace;
+    line-height: 1;
+}
+.metric-value .unit { font-size: 16px; opacity: 0.7; }
+.metric-card.smile .metric-value { color: #fbbf24; text-shadow: 0 0 14px rgba(251,191,36,0.55); }
+.metric-card.tension .metric-value { color: #f87171; text-shadow: 0 0 14px rgba(248,113,113,0.55); }
+.metric-card.stability .metric-value { color: #34d399; text-shadow: 0 0 14px rgba(52,211,153,0.55); }
+.metric-card.vitality .metric-value { color: #22d3ee; text-shadow: 0 0 14px rgba(34,211,238,0.55); }
+.metric-card.confidence .metric-value { color: #a78bfa; text-shadow: 0 0 14px rgba(167,139,250,0.55); }
+.metric-bar {
+    height: 6px;
+    background: #334155;
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 8px 0;
+}
+.metric-fill {
+    height: 100%;
+    transition: width 0.35s ease;
+    border-radius: 3px;
+}
+.smile .metric-fill { background: linear-gradient(90deg, #f59e0b, #fbbf24); box-shadow: 0 0 8px rgba(251,191,36,0.6); }
+.tension .metric-fill { background: linear-gradient(90deg, #ef4444, #f87171); box-shadow: 0 0 8px rgba(248,113,113,0.6); }
+.stability .metric-fill { background: linear-gradient(90deg, #10b981, #34d399); box-shadow: 0 0 8px rgba(52,211,153,0.6); }
+.vitality .metric-fill { background: linear-gradient(90deg, #0891b2, #22d3ee); box-shadow: 0 0 8px rgba(34,211,238,0.6); }
+.confidence .metric-fill { background: linear-gradient(90deg, #7c3aed, #a78bfa); box-shadow: 0 0 8px rgba(167,139,250,0.6); }
+.metric-feedback { font-size: 12px; color: #cbd5e1; margin-top: 6px; line-height: 1.4; }
+.advice-card {
+    background: linear-gradient(145deg, #1e293b, #0f172a);
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 14px 18px;
+    color: #e2e8f0;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.25);
+}
+.advice-title { font-size: 14px; font-weight: 700; color: #818cf8; margin-bottom: 8px; }
+.advice-body { font-size: 13px; color: #cbd5e1; line-height: 1.6; white-space: pre-line; }
+.emotion-placeholder {
+    background: linear-gradient(145deg, #1e293b, #0f172a);
+    border: 1px dashed #475569;
+    border-radius: 14px;
+    padding: 40px 20px;
+    text-align: center;
+    color: #64748b;
+    font-size: 14px;
 /* 组件通用卡片封装 */
 .custom-card {
     background-color: #f8fafc !important;
@@ -234,7 +333,6 @@ custom_css = """
 """
 
 theme = gr.themes.Soft(primary_hue="indigo", secondary_hue="slate")
-
 
 # ---------------------------------------------------------------------------
 # Gradio 布局与交互构建 (UI Layout)
@@ -353,10 +451,24 @@ with gr.Blocks(theme=theme, css=custom_css, title="2030 微光相遇 (Lumina Cam
                 elem_classes=["result-card-placeholder"]
             )
 
-    # ---------------------------------------------------------------------------
-    # 交互事件绑定 (Event Bindings)
-    # ---------------------------------------------------------------------------
-    # 1. 动态增加兴趣输入框
+            # --- 模块四：准备见面（实时仪容自检） ---
+            gr.Markdown("---")
+            gr.Markdown("#### 🪞 模块四：准备见面（实时仪容自检）")
+            gr.Markdown("> 开启摄像头后，AI 会**实时**分析你的微笑度、紧张度、眼神稳定度，随时调整。")
+            emotion_cam = gr.Image(
+                label="点击开启摄像头，对镜自检",
+                sources=["webcam"],
+                type="numpy",
+                streaming=True,
+            )
+            emotion_btn = gr.Button("📷 截图分析当前画面", elem_classes=["normal-btn"])
+            emotion_out = gr.HTML(
+                value='<div class="emotion-placeholder">⏳ 等待摄像头开启<br/>开启后 AI 将实时分析你的微笑度、紧张度与眼神稳定度</div>'
+            )
+
+    # --- 事件绑定 ---
+    
+    # 1. 点击添加兴趣爱好按钮
     add_hobby_btn.click(
         fn=add_hobby_input,
         inputs=[hobby_count_state],
@@ -385,7 +497,21 @@ with gr.Blocks(theme=theme, css=custom_css, title="2030 微光相遇 (Lumina Cam
         outputs=[match_out, icebreaker_out, guide_out, submit_btn]
     )
 
+    # 3. 摄像头实时流式分析：开启摄像头后每帧自动触发
+    emotion_cam.stream(
+        fn=run_emotion_check,
+        inputs=[emotion_cam],
+        outputs=[emotion_out],
+    )
+
+    # 4. 手动分析按钮（上传图片时用）
+    emotion_btn.click(
+        fn=run_emotion_check,
+        inputs=[emotion_cam],
+        outputs=[emotion_out],
+    )
+
 app = demo
 
 if __name__ == "__main__":
-    demo.launch(share=False)
+    demo.launch(share=False, theme=theme, css=custom_css)

@@ -10,6 +10,10 @@ opencv-python>=4.8.0
 Pillow>=10.0.0
 numpy>=1.24.0
 
+# ===== 仪容自检层 (Emotion Analyzer) =====
+# MediaPipe FaceMesh 478 关键点 + 虹膜追踪
+mediapipe>=0.10.0
+
 # ===== LLM Agent 层 =====
 openai>=1.12.0              # 兼容 DeepSeek / GPT-4o 等接口
 
