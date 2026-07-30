@@ -59,7 +59,7 @@ OBJECT_INTEREST_MAPPING = {
 
 # ResNet18 场景分类标签（必须与 data/scene_dataset/ 子文件夹名一一对应）
 scene_labels: list[str] = [
-    "cafe",            # 咖啡厅/猫咖"library_study",   # 图书馆/学习
+    "cafe",            # 咖啡厅/猫咖
     "canteen",         # 食堂
     "classroom",       # 教室
     "dormitory",       # 宿舍
