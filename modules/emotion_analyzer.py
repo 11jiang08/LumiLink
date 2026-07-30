@@ -1,12 +1,14 @@
 # modules/emotion_analyzer.py
 """
 仪容自检模块 (Emotion & Composure Analyzer) - MediaPipe 1.0 Tasks API 版
-基于 FaceLandmarker 的 52 个 ARKit blendshapes（表情系数），输出三维度评分：
-1. 微笑度（mouthSmileLeft / mouthSmileRight 均值，减去 mouthFrown 抵消误判）
+基于 FaceLandmarker 的 52 个 ARKit blendshapes（表情系数），输出五维度评分：
+1. 微笑度（mouthSmile 均值，减去 mouthFrown 抵消误判）
 2. 紧张度（browDown 眉下压 + mouthPress 嘴唇紧抿 + mouthShrugLower 咬合）
 3. 眼神稳定度（eyeLook* 眼球偏移 + eyeBlink 眨眼程度）
+4. 精神饱满度（反疲惫：低眨眼 + 低眯眼 + 低下唇收紧）
+5. 自信度（browInnerUp 内眉上扬 + jawForward 下巴前伸 + 低眉下压）
 
-加滑动平均滤波器（默认 5 帧窗口）平滑三维度分数，消除帧间抖动。
+加滑动平均滤波器（默认 5 帧窗口）平滑五维度分数，消除帧间抖动。
 """
 
 import logging
@@ -21,17 +23,21 @@ _MODEL_PATH = str(Path(__file__).parent.parent / "models" / "face_landmarker.tas
 
 @dataclass
 class EmotionReport:
-    """仪容自检报告。"""
+    """仪容自检报告（五维度）。"""
     smile_score: int = 0          # 微笑度 0-100
     tension_score: int = 0        # 紧张度 0-100（越高越紧张）
     stability_score: int = 0      # 眼神稳定度 0-100
+    vitality_score: int = 0       # 精神饱满度 0-100（越高越精神）
+    confidence_score: int = 0     # 自信度 0-100
     smile_feedback: str = ""
     tension_feedback: str = ""
     stability_feedback: str = ""
+    vitality_feedback: str = ""
+    confidence_feedback: str = ""
     overall_advice: str = ""
 
     def to_html(self) -> str:
-        """科技感仪表盘 HTML（深色卡片 + 发光数值 + 渐变进度条）。"""
+        """科技感五维仪表盘 HTML（深色卡片 + 发光数值 + 渐变进度条）。"""
         return f"""
 <div class="emotion-dashboard">
   <div class="metric-card smile">
@@ -55,6 +61,20 @@ class EmotionReport:
     <div class="metric-bar"><div class="metric-fill" style="width:{self.stability_score}%"></div></div>
     <div class="metric-feedback">{self.stability_feedback}</div>
   </div>
+  <div class="metric-card vitality">
+    <div class="metric-icon">⚡</div>
+    <div class="metric-label">精神饱满度</div>
+    <div class="metric-value">{self.vitality_score}<span class="unit">%</span></div>
+    <div class="metric-bar"><div class="metric-fill" style="width:{self.vitality_score}%"></div></div>
+    <div class="metric-feedback">{self.vitality_feedback}</div>
+  </div>
+  <div class="metric-card confidence">
+    <div class="metric-icon">💪</div>
+    <div class="metric-label">自信度</div>
+    <div class="metric-value">{self.confidence_score}<span class="unit">%</span></div>
+    <div class="metric-bar"><div class="metric-fill" style="width:{self.confidence_score}%"></div></div>
+    <div class="metric-feedback">{self.confidence_feedback}</div>
+  </div>
 </div>
 <div class="advice-card">
   <div class="advice-title">📋 见面时的表情管理建议</div>
@@ -69,6 +89,8 @@ class EmotionReport:
             f"😊 **微笑度 {self.smile_score}%** → {self.smile_feedback}\n\n"
             f"😰 **紧张度 {self.tension_score}%** → {self.tension_feedback}\n\n"
             f"👀 **眼神稳定度 {self.stability_score}%** → {self.stability_feedback}\n\n"
+            f"⚡ **精神饱满度 {self.vitality_score}%** → {self.vitality_feedback}\n\n"
+            f"💪 **自信度 {self.confidence_score}%** → {self.confidence_feedback}\n\n"
             "---\n"
             f"### 📋 见面时的表情管理建议\n\n{self.overall_advice}"
         )
@@ -80,16 +102,20 @@ class EmotionAnalyzer:
     def __init__(self, smooth_window: int = 5):
         self._detector = None
         self._smooth_window = smooth_window
-        # 三维度历史缓冲，用 deque 自动滚动窗口
+        # 五维度历史缓冲，用 deque 自动滚动窗口
         self._smile_hist = deque(maxlen=smooth_window)
         self._tension_hist = deque(maxlen=smooth_window)
         self._stability_hist = deque(maxlen=smooth_window)
+        self._vitality_hist = deque(maxlen=smooth_window)
+        self._confidence_hist = deque(maxlen=smooth_window)
 
     def reset(self):
         """重置滤波器历史（切换用户/重新开始时调用）。"""
         self._smile_hist.clear()
         self._tension_hist.clear()
         self._stability_hist.clear()
+        self._vitality_hist.clear()
+        self._confidence_hist.clear()
 
     @staticmethod
     def _smooth(value: int, history: deque) -> int:
@@ -127,7 +153,7 @@ class EmotionAnalyzer:
 
     def analyze(self, image_np) -> EmotionReport:
         """
-        对一张人脸图像做三维度评分（基于 blendshapes + 滑动平均滤波）。
+        对一张人脸图像做五维度评分（基于 blendshapes + 滑动平均滤波）。
 
         :param image_np: numpy ndarray (RGB, HxWx3)，来自 Gradio 的 webcam
         :return: EmotionReport
@@ -152,13 +178,13 @@ class EmotionAnalyzer:
         bshapes = result.face_blendshapes[0]
         bs = {b.category_name: b.score for b in bshapes}
 
-        # ---- 1. 微笑度：mouthSmile 均值 ----
+        # ---- 1. 微笑度：mouthSmile 均值，减去 mouthFrown 抵消误判 ----
         smile_raw = (bs.get("mouthSmileLeft", 0) + bs.get("mouthSmileRight", 0)) / 2
         frown = (bs.get("mouthFrownLeft", 0) + bs.get("mouthFrownRight", 0)) / 2
         smile = int(max(0, smile_raw - frown * 0.3) * 100)
         smile = max(0, min(100, smile))
 
-        # ---- 2. 紧张度：browDown 眉下压 + mouthPress 嘴唇紧抿 ----
+        # ---- 2. 紧张度：browDown 眉下压 + mouthPress 嘴唇紧抿 + mouthShrugLower 咬合 ----
         brow_down = (bs.get("browDownLeft", 0) + bs.get("browDownRight", 0)) / 2
         mouth_press = (bs.get("mouthPressLeft", 0) + bs.get("mouthPressRight", 0)) / 2
         jaw_clench = bs.get("mouthShrugLower", 0)
@@ -175,19 +201,36 @@ class EmotionAnalyzer:
         stability = int(100 - (gaze_shift * 160 + blink * 40))
         stability = max(0, min(100, stability))
 
+        # ---- 4. 精神饱满度：低眨眼 + 低眯眼 + 低下唇收紧 = 精神 ----
+        eye_squint = (bs.get("eyeSquintLeft", 0) + bs.get("eyeSquintRight", 0)) / 2
+        vitality = int(100 - (blink * 30 + eye_squint * 35 + jaw_clench * 35))
+        vitality = max(0, min(100, vitality))
+
+        # ---- 5. 自信度：内眉上扬 + 下巴前伸 + 低眉下压 ----
+        brow_inner_up = bs.get("browInnerUp", 0)
+        jaw_forward = bs.get("jawForward", 0)
+        confidence = int((brow_inner_up * 0.35 + jaw_forward * 0.30 + (1 - brow_down) * 0.35) * 100)
+        confidence = max(0, min(100, confidence))
+
         # ---- 滑动平均滤波：平滑帧间抖动 ----
         smile = self._smooth(smile, self._smile_hist)
         tension = self._smooth(tension, self._tension_hist)
         stability = self._smooth(stability, self._stability_hist)
+        vitality = self._smooth(vitality, self._vitality_hist)
+        confidence = self._smooth(confidence, self._confidence_hist)
 
         return EmotionReport(
             smile_score=smile,
             tension_score=tension,
             stability_score=stability,
+            vitality_score=vitality,
+            confidence_score=confidence,
             smile_feedback=self._smile_feedback(smile),
             tension_feedback=self._tension_feedback(tension),
             stability_feedback=self._stability_feedback(stability),
-            overall_advice=self._overall_advice(smile, tension, stability),
+            vitality_feedback=self._vitality_feedback(vitality),
+            confidence_feedback=self._confidence_feedback(confidence),
+            overall_advice=self._overall_advice(smile, tension, stability, vitality, confidence),
         )
 
     @staticmethod
@@ -215,7 +258,23 @@ class EmotionAnalyzer:
         return "眼神躲闪，建议见面时盯着对方双眼之间，减轻对视压力。"
 
     @staticmethod
-    def _overall_advice(smile: int, tension: int, stability: int) -> str:
+    def _vitality_feedback(score: int) -> str:
+        if score >= 65:
+            return "精神饱满，眼神有光，状态满分！"
+        if score >= 40:
+            return "精神尚可，见面前去洗把脸会更清醒。"
+        return "略显疲惫，建议见面前喝口水、活动一下肩颈。"
+
+    @staticmethod
+    def _confidence_feedback(score: int) -> str:
+        if score >= 60:
+            return "自信从容，这份气场很加分！"
+        if score >= 35:
+            return "还可以再挺胸抬头一点，更显自信。"
+        return "建议挺胸抬头、微微扬起下巴，提升气场。"
+
+    @staticmethod
+    def _overall_advice(smile: int, tension: int, stability: int, vitality: int, confidence: int) -> str:
         tips = []
         if smile < 50:
             tips.append("- 见面时保持自然微笑，不用僵硬——可以提前想一个开心的小事。")
@@ -223,6 +282,10 @@ class EmotionAnalyzer:
             tips.append("- 见面前做 3 次深呼吸（4 秒吸、7 秒屏、8 秒呼），能快速降紧张。")
         if stability < 55:
             tips.append("- 眼神不知道往哪放时，看对方鼻梁三角区，既不躲闪也不冒犯。")
+        if vitality < 50:
+            tips.append("- 精神不够时，见面前用冷水洗脸或做 10 秒开合跳，快速唤醒状态。")
+        if confidence < 40:
+            tips.append("- 自信不够时，挺胸抬头、放慢语速，肢体姿态会反过来影响心理状态。")
         if not tips:
             tips.append("- 整体状态很棒！保持这份松弛感，做真实的自己就好。")
         return "\n".join(tips)
@@ -233,5 +296,7 @@ class EmotionAnalyzer:
             smile_feedback=msg,
             tension_feedback="—",
             stability_feedback="—",
+            vitality_feedback="—",
+            confidence_feedback="—",
             overall_advice="请重新拍照后再试。",
         )

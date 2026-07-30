@@ -186,7 +186,7 @@ custom_css = """
 /* ===== 模块四：科技感仪容仪表盘 ===== */
 .emotion-dashboard {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
     gap: 12px;
     margin-bottom: 14px;
 }
@@ -214,6 +214,8 @@ custom_css = """
 .metric-card.smile .metric-value { color: #fbbf24; text-shadow: 0 0 14px rgba(251,191,36,0.55); }
 .metric-card.tension .metric-value { color: #f87171; text-shadow: 0 0 14px rgba(248,113,113,0.55); }
 .metric-card.stability .metric-value { color: #34d399; text-shadow: 0 0 14px rgba(52,211,153,0.55); }
+.metric-card.vitality .metric-value { color: #22d3ee; text-shadow: 0 0 14px rgba(34,211,238,0.55); }
+.metric-card.confidence .metric-value { color: #a78bfa; text-shadow: 0 0 14px rgba(167,139,250,0.55); }
 .metric-bar {
     height: 6px;
     background: #334155;
@@ -229,6 +231,8 @@ custom_css = """
 .smile .metric-fill { background: linear-gradient(90deg, #f59e0b, #fbbf24); box-shadow: 0 0 8px rgba(251,191,36,0.6); }
 .tension .metric-fill { background: linear-gradient(90deg, #ef4444, #f87171); box-shadow: 0 0 8px rgba(248,113,113,0.6); }
 .stability .metric-fill { background: linear-gradient(90deg, #10b981, #34d399); box-shadow: 0 0 8px rgba(52,211,153,0.6); }
+.vitality .metric-fill { background: linear-gradient(90deg, #0891b2, #22d3ee); box-shadow: 0 0 8px rgba(34,211,238,0.6); }
+.confidence .metric-fill { background: linear-gradient(90deg, #7c3aed, #a78bfa); box-shadow: 0 0 8px rgba(167,139,250,0.6); }
 .metric-feedback { font-size: 12px; color: #cbd5e1; margin-top: 6px; line-height: 1.4; }
 .advice-card {
     background: linear-gradient(145deg, #1e293b, #0f172a);
