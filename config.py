@@ -57,6 +57,24 @@ OBJECT_INTEREST_MAPPING = {
     "backpack": "户外/自习搭子"
 }
 
+# ResNet18 场景分类标签（必须与 data/scene_dataset/ 子文件夹名一一对应）
+scene_labels: list[str] = [
+    "cafe",            # 咖啡厅/猫咖"library_study",   # 图书馆/学习
+    "canteen",         # 食堂
+    "classroom",       # 教室
+    "dormitory",       # 宿舍
+    "library_study",   # 图书馆/学习
+    "playground",      # 操场
+]
+# 自训练场景分类权重路径。
+# 若文件存在 → 自动加载自训练 ResNet18（推荐，识别准确率高）；
+# 若文件不存在 → 回退到 ImageNet 预训练 + 规则关键词映射（兜底，准确率较低）。
+# 训练完成后会自动生成在 models/scene_resnet18.pt，无需手动改路径。
+scene_model_path: Path = MODELS_DIR / "scene_resnet18.pt"
+yolo_weights: str = "yolov8n.pt"       # YOLOv8 nano，轻量快速
+yolo_conf_threshold: float = 0.35
+yolo_top_k: int = 5                    # 只取置信度最高的前 K 个物品
+
 # ==========================================
 # 3. 全局可选项与预设配置
 # ==========================================

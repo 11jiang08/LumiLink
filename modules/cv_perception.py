@@ -1,28 +1,20 @@
-# modules/cv_perception.py
 """
 多模态感知模块 (CV Perception Layer)
 核心功能：
-1. ResNet18 图像场景分类 (操场/图书馆/食堂等)
-2. YOLOv8 目标检测 (识别特征物品，如球拍、习题册、电脑等)
-3. 多模态融合：结合用户输入的文字与图像识别结果，生成统一结构化 JSON 标签
-
-自训练权重支持（resnet18training 分支合并）：
-- 若 config.SCENE_MODEL_PATH 指向的文件存在，自动加载自训练 ResNet18 做场景分类。
-- 若不存在，回退到 ImageNet 预训练 + YOLO 启发式场景判定。
+1. ResNet 场景分类 (自训练权重优先，未找到则回退 ImageNet 预训练 + 启发式)
+2. YOLOv8 目标检测 (识别特征物品，映射用户兴趣标签)
+3. 多模态融合：结合文字意图、用户手动标签与视觉感知生成最终结构化 JSON
 """
 
 import logging
-import os
+from pathlib import Path
+from typing import Dict, List, Any, Optional, Union
+from PIL import Image
+import numpy as np
+
 import config
 
 logger = logging.getLogger(__name__)
-
-# 全局模型实例变量（延迟加载）
-yolo_model = None
-resnet_model = None
-resnet_transforms = None
-# 自训练场景类别名（英文），None 表示当前用的是 ImageNet 预训练
-scene_class_names = None
 
 # 自训练模型英文标签 → 系统中文场景名 映射
 _SCENE_LABEL_CN = {
@@ -35,176 +27,273 @@ _SCENE_LABEL_CN = {
 }
 
 
-def _init_models():
-    """按需延迟初始化 CV 模型，避免启动卡顿"""
-    global yolo_model, resnet_model, resnet_transforms, scene_class_names
+class CVPerceptionEngine:
+    """CV 感知引擎（单例模式，延迟加载模型）"""
 
-    # 1. 初始化 YOLOv8
-    if yolo_model is None:
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(CVPerceptionEngine, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+
+        self._yolo_model = None
+        self._resnet_model = None
+        self._resnet_transform = None
+        self._scene_class_names: Optional[List[str]] = None
+        self._device = self._get_device()
+        self._initialized = True
+
+    def _get_device(self) -> str:
+        """获取当前可用的加速设备"""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                return "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return "mps"
+        except ImportError:
+            pass
+        return "cpu"
+
+    def _init_yolo(self):
+        """懒加载 YOLOv8 目标检测模型"""
+        if self._yolo_model is not None:
+            return
+
         try:
             from ultralytics import YOLO
-            yolo_model = YOLO(config.YOLO_MODEL_PATH)
-            logger.info("YOLOv8 模型加载成功！")
+            model_path = getattr(config, "YOLO_MODEL_PATH", "yolov8n.pt")
+            self._yolo_model = YOLO(model_path)
+            logger.info("YOLOv8 模型加载成功！[Device: %s]", self._device)
         except Exception as e:
-            logger.warning(f"YOLOv8 加载失败 (使用模拟解析保底): {e}")
+            logger.error("YOLOv8 模型加载失败: %s", e)
+            self._yolo_model = None
 
-    # 2. 初始化 ResNet18
-    if resnet_model is None:
+    def _init_resnet(self):
+        """懒加载 ResNet 场景分类模型"""
+        if self._resnet_model is not None:
+            return
+
         try:
             import torch
             import torchvision.models as models
             import torchvision.transforms as transforms
-            from pathlib import Path
 
-            custom_path = Path(config.SCENE_MODEL_PATH)
-            if custom_path.exists():
-                # 优先加载自训练场景分类权重
-                checkpoint = torch.load(custom_path, map_location="cpu")
-                scene_class_names = list(checkpoint.get("classes", []))
-                resnet_model = models.resnet18(weights=None)
-                resnet_model.fc = torch.nn.Linear(
-                    resnet_model.fc.in_features, len(scene_class_names)
-                )
-                resnet_model.load_state_dict(checkpoint["state_dict"])
-                resnet_model.eval()
-                logger.info(
-                    f"自训练场景权重加载成功：{custom_path}（{len(scene_class_names)} 类）"
-                )
-            else:
-                resnet_model = models.resnet18(pretrained=True)
-                resnet_model.eval()
-                scene_class_names = None
-                logger.info("未找到自训练权重，使用 ImageNet 预训练 ResNet18")
-
-            resnet_transforms = transforms.Compose([
-                transforms.Resize(256),
-                transforms.CenterCrop(224),
+            self._resnet_transform = transforms.Compose([
+                transforms.Resize((224, 224)),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],
+                    std=[0.229, 0.224, 0.225]
+                ),
             ])
+
+            custom_path = Path(getattr(config, "SCENE_MODEL_PATH", "weights/scene_resnet.pt"))
+            
+            if custom_path.exists():
+                logger.info("尝试加载自训练场景模型: %s", custom_path)
+                checkpoint = torch.load(custom_path, map_location=self._device)
+                
+                # 兼容不同 Checkpoint 保存格式
+                if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+                    state_dict = checkpoint["state_dict"]
+                    self._scene_class_names = checkpoint.get("classes", list(_SCENE_LABEL_CN.keys()))
+                else:
+                    state_dict = checkpoint
+                    self._scene_class_names = list(_SCENE_LABEL_CN.keys())
+
+                # 自动适应 ResNet18 或 ResNet50 结构
+                num_classes = len(self._scene_class_names)
+                try:
+                    # 优先尝试 ResNet18
+                    model = models.resnet18(weights=None)
+                    model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+                    model.load_state_dict(state_dict)
+                except Exception:
+                    # 尝试带 Dropout 的 ResNet50 结构
+                    model = models.resnet50(weights=None)
+                    model.fc = torch.nn.Sequential(
+                        torch.nn.Dropout(p=0.3),
+                        torch.nn.Linear(model.fc.in_features, num_classes)
+                    )
+                    model.load_state_dict(state_dict)
+
+                model.to(self._device)
+                model.eval()
+                self._resnet_model = model
+                logger.info("自训练 ResNet 场景权重加载成功！（类别数：%d）", num_classes)
+            else:
+                # ImageNet 预训练回退模式
+                logger.warning("未找到自训练权重，加载 ImageNet 预训练 ResNet18 模型...")
+                model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+                model.to(self._device)
+                model.eval()
+                self._resnet_model = model
+                self._scene_class_names = None
+
         except Exception as e:
-            logger.warning(f"ResNet18 加载失败 (使用模拟解析保底): {e}")
+            logger.error("ResNet 加载失败 (降级到纯启发式模式): %s", e)
+            self._resnet_model = None
 
-
-def _classify_scene_with_resnet(image_input):
-    """用自训练 ResNet18 做场景分类，返回中文场景标签；不可用则返回 None。"""
-    if resnet_model is None or scene_class_names is None:
-        return None
-    try:
-        import torch
-        from PIL import Image
-        import numpy as np
-
-        img = image_input
-        if not isinstance(img, Image.Image):
-            img = Image.fromarray(np.array(img))
-        img = img.convert("RGB")
-        tensor = resnet_transforms(img).unsqueeze(0)
-        with torch.no_grad():
-            idx = int(resnet_model(tensor).argmax(1).item())
-        if 0 <= idx < len(scene_class_names):
-            en_label = scene_class_names[idx]
-            return _SCENE_LABEL_CN.get(en_label, en_label)
-        return None
-    except Exception as e:
-        logger.warning(f"ResNet18 场景分类失败，回退启发式: {e}")
+    def _preprocess_image(self, image_input: Any) -> Optional[Image.Image]:
+        """将各种类型的图像输入转换为 RGB 格式的 PIL.Image"""
+        if image_input is None:
+            return None
+        try:
+            if isinstance(image_input, Image.Image):
+                return image_input.convert("RGB")
+            elif isinstance(image_input, np.ndarray):
+                return Image.fromarray(image_input).convert("RGB")
+            elif isinstance(image_input, (str, Path)) and os.path.exists(image_input):
+                return Image.open(image_input).convert("RGB")
+        except Exception as e:
+            logger.error("图像预处理失败: %s", e)
         return None
 
+    def classify_scene(self, img: Image.Image) -> Optional[str]:
+        """使用 ResNet 进行场景分类，返回中文场景名称"""
+        self._init_resnet()
+        if self._resnet_model is None or self._resnet_transform is None:
+            return None
 
-def analyze_image(image_input) -> dict:
+        try:
+            import torch
+            tensor = self._resnet_transform(img).unsqueeze(0).to(self._device)
+            with torch.no_grad():
+                outputs = self._resnet_model(tensor)
+                idx = int(outputs.argmax(1).item())
+
+            if self._scene_class_names and 0 <= idx < len(self._scene_class_names):
+                raw_label = self._scene_class_names[idx]
+                return _SCENE_LABEL_CN.get(raw_label, raw_label)
+        except Exception as e:
+            logger.warning("ResNet 场景推理异常: %s", e)
+            
+        return None
+
+    def detect_objects(self, image_input: Any, conf_threshold: float = 0.25) -> List[str]:
+        """使用 YOLOv8 进行目标检测，返回去重后的物体名称列表"""
+        self._init_yolo()
+        if self._yolo_model is None:
+            return []
+
+        detected_objects = []
+        try:
+            results = self._yolo_model(image_input, conf=conf_threshold, verbose=False)
+            for r in results:
+                for box in r.boxes:
+                    cls_id = int(box.cls[0])
+                    class_name = self._yolo_model.names[cls_id]
+                    detected_objects.append(class_name)
+        except Exception as e:
+            logger.error("YOLOv8 推理失败: %s", e)
+
+        return list(set(detected_objects))
+
+
+# 单例句柄
+_engine = CVPerceptionEngine()
+
+
+def analyze_image(image_input: Any) -> Dict[str, Any]:
     """
-    对上传的照片进行 CV 感知分析
+    单张图像感知分析主接口
 
-    :param image_input: PIL Image 或 numpy array (来自 Gradio)
-    :return: {"detected_scene": "操场跑道", "detected_objects": ["球拍", "水杯"], "extracted_tags": ["夜跑", "羽毛球"]}
+    :param image_input: PIL Image / Numpy Array / 图像路径
+    :return: {
+        "detected_scene": "操场跑道",
+        "detected_objects": ["sports ball", "bottle"],
+        "extracted_tags": ["球类运动", "饮品"]
+    }
     """
-    if image_input is None:
+    img = _engine._preprocess_image(image_input)
+    if img is None:
         return {
             "detected_scene": "未知场景",
             "detected_objects": [],
             "extracted_tags": []
         }
 
-    _init_models()
+    # 1. YOLOv8 目标检测
+    detected_objects = _engine.detect_objects(img)
 
-    detected_objects = []
+    # 2. 映射检测到的物体 -> 用户兴趣标签
     extracted_tags = []
-    detected_scene = "校园广场"
+    object_mapping = getattr(config, "OBJECT_INTEREST_MAPPING", {
+        "book": "阅读/学习",
+        "sports ball": "球类运动",
+        "tennis racket": "网球/羽毛球",
+        "laptop": "数码/编程",
+        "cup": "咖啡/特饮",
+        "guitar": "音乐/乐器"
+    })
 
-    # --- 1. YOLOv8 物品检测 ---
-    if yolo_model is not None:
-        try:
-            results = yolo_model(image_input)
-            for r in results:
-                for box in r.boxes:
-                    cls_id = int(box.cls[0])
-                    class_name = yolo_model.names[cls_id]
-                    detected_objects.append(class_name)
+    for obj in detected_objects:
+        if obj in object_mapping:
+            tag = object_mapping[obj]
+            if tag not in extracted_tags:
+                extracted_tags.append(tag)
 
-                    # 映射到兴趣标签
-                    if class_name in config.OBJECT_INTEREST_MAPPING:
-                        tag = config.OBJECT_INTEREST_MAPPING[class_name]
-                        if tag not in extracted_tags:
-                            extracted_tags.append(tag)
-        except Exception as e:
-            logger.error(f"YOLOv8 推理异常: {e}")
+    # 3. 场景判定（自训练 ResNet 优先，若无则使用启发式）
+    detected_scene = _engine.classify_scene(img)
 
-    # --- 2. 场景判定 ---
-    # 优先用自训练 ResNet18 做场景分类
-    resnet_scene = _classify_scene_with_resnet(image_input)
-    if resnet_scene:
-        detected_scene = resnet_scene
-    else:
-        # 回退到启发式 / ResNet 场景判定
-        # 如果检测到电脑/书本 -> 图书馆/自习室
+    if not detected_scene:
+        # 启发式兜底逻辑
         if "laptop" in detected_objects or "book" in detected_objects:
             detected_scene = "图书馆/自习室"
-        # 如果检测到球类/运动器材 -> 操场
-        elif "sports ball" in detected_objects or "racket" in detected_objects:
+        elif "sports ball" in detected_objects or "tennis racket" in detected_objects:
             detected_scene = "操场跑道"
-        # 如果检测到杯子/餐具 -> 食堂/咖啡厅
         elif "cup" in detected_objects or "bowl" in detected_objects:
             detected_scene = "食堂/校园咖啡厅"
         else:
             detected_scene = "校园公共区域"
 
-    # 保底：若没识别出标签，根据场景补齐默认标签
+    # 4. 保底标签补齐
     if not extracted_tags:
         if detected_scene == "图书馆/自习室":
-            extracted_tags = ["赶论文/刷题", "安静自习"]
+            extracted_tags = ["安静自习", "搭子刷题"]
         elif detected_scene == "操场跑道":
-            extracted_tags = ["跑步/运动", "户外组队"]
+            extracted_tags = ["跑步/运动", "户外约战"]
         else:
             extracted_tags = ["破冰交流", "找搭子"]
 
     return {
         "detected_scene": detected_scene,
-        "detected_objects": list(set(detected_objects)),
+        "detected_objects": detected_objects,
         "extracted_tags": extracted_tags
     }
 
 
-def fuse_multimodal_inputs(text_intent: str, user_interests: list, image_input) -> dict:
+def fuse_multimodal_inputs(text_intent: str, user_interests: List[str], image_input: Any) -> Dict[str, Any]:
     """
-    多模态融合函数：将文字意图、手动兴趣与视觉感知结果融合
+    多模态融合接口：结合用户文本意图、手动选择的兴趣与 CV 感知结果
     """
     cv_result = analyze_image(image_input)
 
-    # 融合兴趣标签
+    # 融合并去重所有兴趣标签
+    user_interests = user_interests or []
     final_tags = list(set(user_interests + cv_result["extracted_tags"]))
 
-    # 确认当下场景
+    # 确认当下最终场景
     final_scene = cv_result["detected_scene"]
-    if final_scene == "未知场景" or final_scene == "校园公共区域":
-        # 如果图片没判定出来，从文字推导
-        if "跑" in text_intent or "操场" in text_intent:
+    
+    # 若图片识别结果不明确，由文本意图推导场景
+    if final_scene in ["未知场景", "校园公共区域"] and text_intent:
+        text = text_intent.lower()
+        if any(k in text for k in ["跑", "操场", "健身", "球"]):
             final_scene = "操场跑道"
-        elif "图书馆" in text_intent or "高数" in text_intent or "赶作业" in text_intent:
+        elif any(k in text for k in ["图书馆", "自习", "高数", "论文", "学习"]):
             final_scene = "图书馆/自习室"
-        elif "火锅" in text_intent or "食堂" in text_intent or "吃" in text_intent:
+        elif any(k in text for k in ["吃", "食堂", "火锅", "咖啡", "奶茶"]):
             final_scene = "食堂/餐厅"
         else:
-            final_scene = "校园大门/看台"
+            final_scene = "校园公共区域"
 
     return {
         "final_scene": final_scene,
