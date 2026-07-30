@@ -37,6 +37,7 @@ class EmotionReport:
     confidence_feedback: str = ""
     overall_advice: str = ""
 
+#Replace project name 'Lumina Campus Link' with 'LumiLink'
     def to_html(self) -> str:
         """微光点仪表盘（四维度）。"""
         return f"""

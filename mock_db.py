@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-2030“微光相遇” (Lumina Campus Link) - 模拟用户数据库 (Mock Database)
+Replace project name 'Lumina Campus Link' with 'LumiLink'
+LumiLink（微光相遇） - 模拟用户数据库 (Mock Database)
 
 本模块提供 50 份高质量校友画像数据，涵盖多样化的性格、兴趣、雷点、加密缺点及多模态视觉感知场景，
 专为 LLM 逆向匹配引擎提供丰富的候选人匹配池。

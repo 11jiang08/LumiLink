@@ -1,6 +1,6 @@
 # modules/__init__.py
 """
-微光相遇 (Lumina Campus Link) - 核心功能模块包
+LumiLink（微光相遇） - 核心功能模块包
 """
 
 # 1. 从多模态感知模块暴露核心函数

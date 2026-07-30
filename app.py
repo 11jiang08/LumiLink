@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-2030“微光相遇” (Lumina Campus Link) - 主程序与 Gradio 交互界面
+LumiLink（LL） - 主程序与 Gradio 交互界面
 
 本模块负责构建系统的 Web 前端交互界面，整合多模态感知输入（文本问卷与计算机视觉识别），
 调度逆向匹配引擎及 Action Engine，生成最终的匹配结果、破冰策略与线下行动指南。
@@ -201,12 +201,22 @@ with gr.Blocks(theme=theme, title="✨ LumiLink") as demo:
 <div id="ll-intro">
   <canvas id="ll-intro-canvas"></canvas>
   <div class="ll-intro-title">LumiLink</div>
-  <div class="ll-intro-subtitle">微光相遇 · 点击任意位置进入</div>
+  <div class="ll-intro-subtitle">基于真实自我剖析与多模态感知的校园 AI 社交平台 · 点击任意位置进入</div>
 </div>
 <button id="ll-theme-toggle" title="切换主题">🌙</button>
 <div id="ll-loading">
   <canvas id="ll-loading-canvas"></canvas>
+  <div class="ll-loading-core">
+    <div class="ll-core-dot"></div>
+    <div class="ll-core-ring"></div>
+    <div class="ll-core-ring"></div>
+    <div class="ll-core-ring"></div>
+    <div class="ll-core-ring"></div>
+  </div>
   <div class="ll-loading-text">微光匹配中</div>
+  <div class="ll-loading-sub">正在解析你的社交电池...</div>
+  <div class="ll-loading-bar"><div class="ll-loading-bar-fill"></div></div>
+  <div class="ll-loading-pct">0%</div>
 </div>
 """,
         js_on_load="""
@@ -297,8 +307,69 @@ setTimeout(function(){
   }
   var loadingEl=document.getElementById('ll-loading');
   var loadingField=null;
-  function showLoading(){if(loadingEl){loadingEl.classList.add('active');loadingField=initStarfield('ll-loading-canvas',40,100);}}
-  function hideLoading(){if(loadingEl){loadingEl.classList.remove('active');if(loadingField){loadingField.stop();loadingField=null;}}}
+  var loadingTimer=null, progressTimer=null, msgIdx=0, curPct=0;
+  var loadingSteps=[
+    {t:'正在解析你的社交电池', s:'读取性格特质与社交能量值...'},
+    {t:'扫描兴趣契合度雷达', s:'在校园微光星图中搜索共振频率...'},
+    {t:'交叉比对性格雷点', s:'为加密 B 面档案执行排雷校验...'},
+    {t:'融合视觉感知场景', s:'ResNet18 正在解析随手拍场景...'},
+    {t:'逆向匹配最佳微光搭子', s:'LLM 引擎正在做最后一轮互补推演...'},
+    {t:'生成高情商破冰策略', s:'为你的破冰风格定制开场白...'}
+  ];
+  function setLoadMsg(txt, sub){
+    var tEl=loadingEl.querySelector('.ll-loading-text');
+    var sEl=loadingEl.querySelector('.ll-loading-sub');
+    if(tEl){tEl.style.opacity='0';}
+    if(sEl){sEl.style.opacity='0';}
+    setTimeout(function(){
+      if(tEl){tEl.textContent=txt;tEl.style.opacity='0.95';}
+      if(sEl){sEl.textContent=sub;sEl.style.opacity='1';}
+    }, 300);
+  }
+  function setLoadPct(p){
+    var bar=loadingEl.querySelector('.ll-loading-bar-fill');
+    var pct=loadingEl.querySelector('.ll-loading-pct');
+    var v=Math.max(0,Math.min(100,p));
+    if(bar){bar.style.width=v+'%';}
+    if(pct){pct.textContent=Math.round(v)+'%';}
+  }
+  function showLoading(){
+    if(!loadingEl) return;
+    loadingEl.classList.add('active');
+    loadingField=initStarfield('ll-loading-canvas',40,100);
+    msgIdx=0; curPct=4;
+    setLoadMsg(loadingSteps[0].t, loadingSteps[0].s);
+    setLoadPct(curPct);
+    var stepCount=loadingSteps.length;
+    var stepInterval=2200;  // 每步文案停留时长
+    loadingTimer=setInterval(function(){
+      msgIdx=(msgIdx+1)%stepCount;
+      setLoadMsg(loadingSteps[msgIdx].t, loadingSteps[msgIdx].s);
+    }, stepInterval);
+    // 进度条：缓慢推进到 92%，等待真实完成
+    progressTimer=setInterval(function(){
+      if(curPct<92){
+        // 越接近 92 越慢，制造"即将完成"的期待感
+        var remaining=92-curPct;
+        curPct+=Math.max(0.4, remaining*0.06);
+        setLoadPct(curPct);
+      }
+    }, 180);
+  }
+  function hideLoading(){
+    if(!loadingEl) return;
+    setLoadPct(100);
+    var tEl=loadingEl.querySelector('.ll-loading-text');
+    var sEl=loadingEl.querySelector('.ll-loading-sub');
+    if(tEl){tEl.textContent='匹配完成'; tEl.style.opacity='0.95';}
+    if(sEl){sEl.textContent='微光搭子已找到，正在呈现...'; sEl.style.opacity='1';}
+    setTimeout(function(){
+      loadingEl.classList.remove('active');
+      if(loadingField){loadingField.stop();loadingField=null;}
+    }, 600);
+    if(loadingTimer){clearInterval(loadingTimer);loadingTimer=null;}
+    if(progressTimer){clearInterval(progressTimer);progressTimer=null;}
+  }
   function setupObserver(){
     var btn=document.querySelector('#submit-match-btn button')||document.querySelector('#submit-match-btn .normal-btn');
     if(!btn){setTimeout(setupObserver,500);return;}

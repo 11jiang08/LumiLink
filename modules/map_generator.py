@@ -78,7 +78,7 @@ def generate_live_campus_map(mock_users: list, user_count: int = 16) -> str:
         popup_html = f"""
         <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px; color: #1e293b; line-height: 1.5; min-width: 150px;">
             <b style="color: #8b5cf6; font-size: 14px;">✨ {u.nickname}</b><br/>
-            📍 场景：<b>{u.cv_scene or '交大校园中'}</b><br/>
+            📍 场景：<b>{u.cv_scene or '交大闵行校区中'}</b><br/>
             🏷️ 兴趣：{", ".join(u.hobbies[:2])}<br/>
             <span style="color: #10b981; font-size: 11px; font-weight: 600;">🟢 微光等待匹配中</span>
         </div>

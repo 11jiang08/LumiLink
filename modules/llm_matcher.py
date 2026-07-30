@@ -22,7 +22,8 @@ client = OpenAI(
     base_url=config.OPENAI_BASE_URL
 )
 
-MATCH_SYSTEM_PROMPT = """
+#Replace project name 'Lumina Campus Link' with 'LumiLink'
+LLM_MATCH_SYSTEM_PROMPT = """
 你是一个兼具心理学深度与高情商的校园匹配 Agent（微光相遇助手）。
 你的核心任务是根据当前用户（User A）的档案与候选数据库（Mock Users）进行“逆向匹配”。
 
@@ -76,7 +77,7 @@ def match_user(user_profile: dict) -> dict:
         response = client.chat.completions.create(
             model=config.LLM_MODEL,
             messages=[
-                {"role": "system", "content": MATCH_SYSTEM_PROMPT},
+                {"role": "system", "content": LLM_MATCH_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.3,
