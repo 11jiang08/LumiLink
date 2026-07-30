@@ -28,7 +28,7 @@ def generate_live_campus_map(mock_users: list, user_count: int = 16) -> str:
         zoom_control=True
     )
 
-    # 2. 注入 CSS 脉冲呼吸光点动画
+    # 2. 注入 CSS 脉冲呼吸光点动画 + 弹窗深色化（配合 light 模式 invert 滤镜反转成浅色）
     pulse_css = """
     <style>
     @keyframes pulse-glow {
@@ -58,6 +58,27 @@ def generate_live_campus_map(mock_users: list, user_count: int = 16) -> str:
         background-color: #ec4899 !important;
         animation: pulse-glow 1.2s infinite ease-in-out !important;
     }
+    /* 弹窗外框深色化：dark 模式原样深底；light 模式经外层 invert 滤镜反转成浅底 */
+    .leaflet-popup-content-wrapper,
+    .leaflet-popup-tip {
+        background: #1e293b !important;
+        color: #e2e8f0 !important;
+        box-shadow: 0 3px 14px rgba(0,0,0,0.4) !important;
+        border: 1px solid rgba(168, 85, 247, 0.3) !important;
+    }
+    .leaflet-popup-content { margin: 8px 12px !important; }
+    .leaflet-container a.leaflet-popup-close-button { color: #94a3b8 !important; }
+    .leaflet-container .leaflet-control-zoom a {
+        background: #1e293b !important;
+        color: #e2e8f0 !important;
+        border-color: rgba(168, 85, 247, 0.3) !important;
+    }
+    .leaflet-container .leaflet-control-zoom a:hover { background: #334155 !important; }
+    .leaflet-container .leaflet-control-attribution {
+        background: rgba(30, 41, 59, 0.7) !important;
+        color: #94a3b8 !important;
+    }
+    .leaflet-container .leaflet-control-attribution a { color: #c4b5fd !important; }
     </style>
     """
     m.get_root().html.add_child(folium.Element(pulse_css))
@@ -74,13 +95,13 @@ def generate_live_campus_map(mock_users: list, user_count: int = 16) -> str:
         # 交替使用高亮闪烁粉紫灯
         dot_class = "glowing-dot glowing-dot-active" if i % 3 == 0 else "glowing-dot"
 
-        # 悬浮提示 & 弹窗内容
+        # 悬浮提示 & 弹窗内容（深底浅字：dark 模式原样显示；light 模式经 invert 滤镜后变浅底深字）
         popup_html = f"""
-        <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px; color: #1e293b; line-height: 1.5; min-width: 150px;">
-            <b style="color: #8b5cf6; font-size: 14px;">✨ {u.nickname}</b><br/>
-            📍 场景：<b>{u.cv_scene or '交大闵行校区中'}</b><br/>
-            🏷️ 兴趣：{", ".join(u.hobbies[:2])}<br/>
-            <span style="color: #10b981; font-size: 11px; font-weight: 600;">🟢 微光等待匹配中</span>
+        <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px; color: #e2e8f0; line-height: 1.5; min-width: 160px; background: #1e293b; padding: 4px 2px;">
+            <b style="color: #c4b5fd; font-size: 14px;">✨ {u.nickname}</b><br/>
+            <span style="color:#94a3b8;">📍 场景：</span><b style="color:#f1f5f9;">{u.cv_scene or '交大闵行校区中'}</b><br/>
+            <span style="color:#94a3b8;">🏷️ 兴趣：</span><span style="color:#e2e8f0;">{", ".join(u.hobbies[:2])}</span><br/>
+            <span style="color: #86efac; font-size: 11px; font-weight: 600;">🟢 微光等待匹配中</span>
         </div>
         """
 
@@ -97,10 +118,10 @@ def generate_live_campus_map(mock_users: list, user_count: int = 16) -> str:
             icon=icon
         ).add_to(m)
 
-    # 4. 包装为带科技感圆角边框的 HTML
+    # 4. 包装为带科技感圆角边框的 HTML（边框/阴影交给 style.css 的 .ll-map-wrap 按主题控制）
     map_html = m._repr_html_()
     return f"""
-    <div style="border-radius: 12px; overflow: hidden; border: 1px solid rgba(168, 85, 247, 0.35); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);">
+    <div class="ll-map-wrap">
         {map_html}
     </div>
     """
