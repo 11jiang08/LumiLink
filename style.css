@@ -1,13 +1,65 @@
 /* ==========================================================================
-   2030“微光相遇” (Lumina Campus Link) - 全局视觉重构 CSS
-   风格：浪漫紫罗兰玻璃拟态 + 浅色防闪烁仪表盘 + 极致紧凑布局
+   LumiLink — 微光相遇 全局视觉系统
+   风格：低饱和度靛蓝微光 + 玻璃拟态 + Light/Dark 双主题
    ========================================================================== */
+
+/* ---------------- 0. CSS 变量：Dark 模式（默认） ---------------- */
+:root {
+    --ll-bg-primary: #0a0e1a;
+    --ll-bg-secondary: #0f1420;
+    --ll-bg-card: rgba(30, 41, 59, 0.45);
+    --ll-bg-card-hover: rgba(30, 41, 59, 0.6);
+    --ll-bg-input: rgba(15, 23, 42, 0.5);
+    --ll-bg-input-focus: rgba(15, 23, 42, 0.7);
+    --ll-text-primary: #e2e8f0;
+    --ll-text-secondary: #94a3b8;
+    --ll-text-muted: #64748b;
+    --ll-accent: #818cf8;
+    --ll-accent-light: #a5b4fc;
+    --ll-accent-glow: rgba(129, 140, 248, 0.12);
+    --ll-border: rgba(148, 163, 184, 0.12);
+    --ll-border-hover: rgba(129, 140, 248, 0.35);
+    --ll-shadow: rgba(0, 0, 0, 0.25);
+    --ll-shadow-hover: rgba(0, 0, 0, 0.4);
+    --ll-glass-blur: 16px;
+    --ll-emotion-smile: #e0c97a;
+    --ll-emotion-tension: #d99696;
+    --ll-emotion-stability: #88c5d4;
+    --ll-emotion-vitality: #7ccbaa;
+    --ll-emotion-confidence: #a5a0d4;
+}
+
+/* ---------------- 0.1 CSS 变量：Light 模式 ---------------- */
+[data-theme="light"] {
+    --ll-bg-primary: #f8fafc;
+    --ll-bg-secondary: #f1f5f9;
+    --ll-bg-card: rgba(255, 255, 255, 0.65);
+    --ll-bg-card-hover: rgba(255, 255, 255, 0.85);
+    --ll-bg-input: rgba(255, 255, 255, 0.8);
+    --ll-bg-input-focus: rgba(255, 255, 255, 1);
+    --ll-text-primary: #1e293b;
+    --ll-text-secondary: #64748b;
+    --ll-text-muted: #94a3b8;
+    --ll-accent: #6366f1;
+    --ll-accent-light: #818cf8;
+    --ll-accent-glow: rgba(99, 102, 241, 0.08);
+    --ll-border: rgba(99, 102, 241, 0.1);
+    --ll-border-hover: rgba(99, 102, 241, 0.3);
+    --ll-shadow: rgba(99, 102, 241, 0.06);
+    --ll-shadow-hover: rgba(99, 102, 241, 0.12);
+    --ll-emotion-smile: #c9a834;
+    --ll-emotion-tension: #c2726b;
+    --ll-emotion-stability: #5a9aab;
+    --ll-emotion-vitality: #5fa888;
+    --ll-emotion-confidence: #7c75b8;
+}
 
 /* ---------------- 1. 全局背景与布局 ---------------- */
 body, .gradio-container {
-    background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 50%, #f4f4f5 100%) !important;
+    background: var(--ll-bg-primary) !important;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-    color: #1e1b4b !important;
+    color: var(--ll-text-primary) !important;
+    transition: background 0.6s ease, color 0.6s ease !important;
 }
 
 .gradio-container {
@@ -16,348 +68,396 @@ body, .gradio-container {
     padding: 24px 16px !important;
 }
 
-/* ---------------- 2. 顶部 Banner 标语 ---------------- */
+/* ---------------- 2. 开屏动画 Overlay ---------------- */
+#ll-intro {
+    position: fixed !important;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 99999;
+    background: #06080f;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    cursor: pointer;
+    transition: opacity 1.5s ease;
+}
+#ll-intro.fade-out {
+    opacity: 0;
+    pointer-events: none;
+}
+#ll-intro-canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+}
+.ll-intro-title {
+    font-size: 3.2rem;
+    font-weight: 200;
+    color: #ffffff;
+    letter-spacing: 10px;
+    opacity: 0;
+    z-index: 2;
+    text-shadow: 0 0 30px rgba(129, 140, 248, 0.4);
+    animation: llTitleFadeIn 3s ease 1.8s forwards;
+}
+.ll-intro-subtitle {
+    font-size: 0.85rem;
+    font-weight: 300;
+    color: #64748b;
+    letter-spacing: 4px;
+    margin-top: 12px;
+    opacity: 0;
+    z-index: 2;
+    animation: llTitleFadeIn 2s ease 3.5s forwards;
+}
+@keyframes llTitleFadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------------- 3. 匹配加载 Overlay ---------------- */
+#ll-loading {
+    position: fixed !important;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 99998;
+    background: rgba(6, 8, 15, 0.92);
+    backdrop-filter: blur(8px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    transition: opacity 0.6s ease;
+}
+#ll-loading.active { display: flex; }
+#ll-loading-canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+}
+.ll-loading-text {
+    font-size: 1.1rem;
+    font-weight: 300;
+    color: #a5b4fc;
+    letter-spacing: 5px;
+    z-index: 2;
+    opacity: 0.85;
+    animation: llPulse 2.5s ease infinite;
+}
+@keyframes llPulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+/* ---------------- 4. 主题切换按钮 ---------------- */
+#ll-theme-toggle {
+    position: fixed;
+    top: 18px;
+    right: 18px;
+    z-index: 1000;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--ll-border);
+    background: var(--ll-bg-card);
+    backdrop-filter: blur(12px);
+    color: var(--ll-text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+}
+#ll-theme-toggle:hover {
+    border-color: var(--ll-accent);
+    color: var(--ll-accent-light);
+    transform: scale(1.08);
+}
+
+/* ---------------- 5. 顶部 Banner ---------------- */
 .header-banner {
     text-align: center;
-    padding: 24px 20px;
+    padding: 28px 20px 20px;
     margin-bottom: 16px;
-    background: rgba(255, 255, 255, 0.65);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    background: var(--ll-bg-card);
+    backdrop-filter: blur(var(--ll-glass-blur));
+    -webkit-backdrop-filter: blur(var(--ll-glass-blur));
     border-radius: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    box-shadow: 0 10px 30px rgba(99, 91, 255, 0.08);
+    border: 1px solid var(--ll-border);
+    box-shadow: 0 8px 28px var(--ll-shadow);
 }
-
 .header-banner h1 {
-    font-size: 2.1rem;
-    font-weight: 800;
-    background: linear-gradient(135deg, #4c1d95 0%, #635bff 50%, #8c52ff 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: var(--ll-text-primary);
     margin-bottom: 4px;
-    letter-spacing: -0.5px;
+    letter-spacing: 1px;
 }
-
 .header-banner p {
-    color: #6b21a8;
-    font-size: 0.95rem;
-    font-weight: 500;
-    opacity: 0.85;
+    color: var(--ll-text-secondary);
+    font-size: 0.9rem;
+    font-weight: 400;
+    opacity: 0.8;
 }
 
-/* ---------------- 3. 通用玻璃卡片容器与极限紧凑标题 ---------------- */
+/* ---------------- 6. 玻璃卡片面板 ---------------- */
 .custom-card-panel {
-    background: rgba(255, 255, 255, 0.75) !important;
-    backdrop-filter: blur(12px) !important;
-    -webkit-backdrop-filter: blur(12px) !important;
+    background: var(--ll-bg-card) !important;
+    backdrop-filter: blur(var(--ll-glass-blur)) !important;
+    -webkit-backdrop-filter: blur(var(--ll-glass-blur)) !important;
     border-radius: 18px !important;
-    border: 1px solid rgba(255, 255, 255, 0.9) !important;
+    border: 1px solid var(--ll-border) !important;
     padding: 16px 18px !important;
     margin-bottom: 14px !important;
-    box-shadow: 0 8px 24px rgba(99, 91, 255, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02) !important;
-    transition: transform 0.3s ease, box-shadow 0.3s ease !important;
-    gap: 2px !important; /* 👈 极限压缩 Gradio 子组件间距 */
+    box-shadow: 0 6px 20px var(--ll-shadow) !important;
+    transition: all 0.3s ease !important;
+    gap: 2px !important;
 }
-
 .custom-card-panel:hover {
-    box-shadow: 0 12px 32px rgba(99, 91, 255, 0.08) !important;
+    box-shadow: 0 10px 28px var(--ll-shadow-hover) !important;
 }
-
-/* 标题栏下边距归零 */
 .panel-title {
-    font-size: 1.1rem !important;
+    font-size: 1.05rem !important;
     font-weight: 700 !important;
-    color: #312e81 !important;
+    color: var(--ll-text-primary) !important;
     margin-top: 0 !important;
-    margin-bottom: 0px !important; /* 👈 归零 */
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
+    margin-bottom: 0px !important;
     display: flex !important;
     align-items: center !important;
     gap: 8px !important;
 }
-
 .panel-title span.badge {
-    background: rgba(99, 91, 255, 0.1);
-    color: #635bff;
-    font-size: 0.75rem;
+    background: var(--ll-accent-glow);
+    color: var(--ll-accent-light);
+    font-size: 0.72rem;
     padding: 2px 8px;
     border-radius: 20px;
     font-weight: 600;
 }
-
-/* 强制把标题下方的 HTML / Markdown 容器向上贴紧 */
 .custom-card-panel .gradio-html,
 .custom-card-panel .gradio-markdown {
     margin-top: 0 !important;
-    padding-top: 0 !important;
 }
-
 .custom-card-panel .gradio-markdown p,
 .custom-card-panel .gradio-markdown blockquote {
-    margin-top: -2px !important; /* 👈 微负边距，直接吸附上标题 */
+    margin-top: -2px !important;
     margin-bottom: 4px !important;
-    padding-top: 0 !important;
 }
 
-/* ---------------- 4. 单选/多选框网格卡片化重构 ---------------- */
+/* ---------------- 7. 单选/多选框 ---------------- */
 .gr-radio, .gr-checkbox-group {
     background: transparent !important;
     border: none !important;
 }
-
 .gr-radio .wrap, .gr-checkbox-group .wrap {
     display: grid !important;
     grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)) !important;
     gap: 8px !important;
 }
-
 .gr-radio label, .gr-checkbox-group label {
-    background: #ffffff !important;
-    border: 1.5px solid #e2e8f0 !important;
+    background: var(--ll-bg-input) !important;
+    border: 1.5px solid var(--ll-border) !important;
     border-radius: 12px !important;
     padding: 8px 10px !important;
     margin: 0 !important;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
     cursor: pointer !important;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
+    color: var(--ll-text-secondary) !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
     text-align: center !important;
 }
-
 .gr-radio label:hover, .gr-checkbox-group label:hover {
-    border-color: #a78bfa !important;
-    background: #fef7ff !important;
+    border-color: var(--ll-border-hover) !important;
+    background: var(--ll-bg-card-hover) !important;
     transform: translateY(-1px) !important;
 }
-
 .gr-radio label.selected, .gr-checkbox-group label.selected {
-    background: linear-gradient(135deg, #f3e8ff 0%, #e0e7ff 100%) !important;
-    border-color: #635bff !important;
-    color: #4338ca !important;
-    font-weight: 700 !important;
-    box-shadow: 0 4px 12px rgba(99, 91, 255, 0.2) !important;
+    background: var(--ll-accent-glow) !important;
+    border-color: var(--ll-accent) !important;
+    color: var(--ll-accent-light) !important;
+    font-weight: 600 !important;
 }
-
 .gr-radio input[type="radio"], .gr-checkbox-group input[type="checkbox"] {
-    accent-color: #635bff !important;
+    accent-color: var(--ll-accent) !important;
 }
 
-/* ---------------- 4.1 文本输入框 (gr.Textbox) 统一重构 ---------------- */
+/* ---------------- 8. 文本输入框 ---------------- */
 .gr-textbox {
     background: transparent !important;
     border: none !important;
 }
-
 .gr-textbox label span {
-    color: #312e81 !important;
+    color: var(--ll-text-secondary) !important;
     font-weight: 600 !important;
-    font-size: 0.9rem !important;
-    margin-bottom: 4px !important;
+    font-size: 0.88rem !important;
 }
-
 .gr-textbox input, .gr-textbox textarea {
-    background: #ffffff !important;
-    border: 1.5px solid #e2e8f0 !important;
+    background: var(--ll-bg-input) !important;
+    border: 1.5px solid var(--ll-border) !important;
     border-radius: 12px !important;
     padding: 8px 12px !important;
-    color: #1e1b4b !important;
-    font-size: 0.95rem !important;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02) !important;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    color: var(--ll-text-primary) !important;
+    font-size: 0.92rem !important;
+    transition: all 0.25s ease !important;
 }
-
 .gr-textbox input:hover, .gr-textbox textarea:hover {
-    border-color: #a78bfa !important;
-    background: #fef7ff !important;
+    border-color: var(--ll-border-hover) !important;
 }
-
 .gr-textbox input:focus, .gr-textbox textarea:focus {
-    border-color: #635bff !important;
-    background: #ffffff !important;
-    box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.15) !important;
+    border-color: var(--ll-accent) !important;
+    background: var(--ll-bg-input-focus) !important;
+    box-shadow: 0 0 0 3px var(--ll-accent-glow) !important;
     outline: none !important;
 }
-
 .gr-textbox input::placeholder, .gr-textbox textarea::placeholder {
-    color: #94a3b8 !important;
-    font-size: 0.9rem !important;
+    color: var(--ll-text-muted) !important;
 }
 
-/* ---------------- 5. 交互按钮动效 ---------------- */
+/* ---------------- 9. 按钮 ---------------- */
 .normal-btn {
-    background: linear-gradient(135deg, #635bff 0%, #8c52ff 100%) !important;
-    color: white !important;
+    background: linear-gradient(135deg, var(--ll-accent) 0%, var(--ll-accent-light) 100%) !important;
+    color: #ffffff !important;
     border: none !important;
     border-radius: 14px !important;
     padding: 12px 20px !important;
-    font-size: 1.05rem !important;
-    font-weight: 700 !important;
-    box-shadow: 0 8px 24px rgba(99, 91, 255, 0.35) !important;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    font-size: 1.02rem !important;
+    font-weight: 600 !important;
+    box-shadow: 0 6px 20px var(--ll-accent-glow) !important;
+    transition: all 0.3s ease !important;
     cursor: pointer !important;
     width: 100% !important;
 }
-
 .normal-btn:hover {
     transform: translateY(-2px) !important;
-    box-shadow: 0 12px 32px rgba(140, 82, 255, 0.45) !important;
+    box-shadow: 0 10px 28px var(--ll-accent-glow) !important;
 }
-
 .matching-btn {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
-    color: white !important;
+    background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%) !important;
+    color: #ffffff !important;
     border: none !important;
     border-radius: 14px !important;
     padding: 12px 20px !important;
-    font-weight: 700 !important;
-    animation: pulse 1.5s infinite;
-    transition: all 0.4s ease-in-out !important;
+    font-weight: 600 !important;
+    animation: llBtnPulse 1.5s infinite !important;
     width: 100% !important;
 }
-
-@keyframes pulse {
-    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-    70% { transform: scale(1.02); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+@keyframes llBtnPulse {
+    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(129, 140, 248, 0.5); }
+    70% { transform: scale(1.01); box-shadow: 0 0 0 8px rgba(129, 140, 248, 0); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(129, 140, 248, 0); }
 }
 
-/* ---------------- 6. 模块四：浅色防闪烁仪容仪表盘 ---------------- */
+/* ---------------- 10. Emotion 仪表盘 ---------------- */
 .emotion-dashboard {
     display: grid !important;
     grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)) !important;
     gap: 10px !important;
     margin-bottom: 10px !important;
-    width: 100% !important;
 }
-
 .metric-card {
-    background: #ffffff !important;
-    border: 1px solid #e2e8f0 !important;
+    background: var(--ll-bg-card) !important;
+    border: 1px solid var(--ll-border) !important;
     border-radius: 14px !important;
     padding: 12px 10px !important;
     text-align: center !important;
-    color: #334155 !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    backface-visibility: hidden !important;
-    will-change: transform, box-shadow !important;
+    color: var(--ll-text-primary) !important;
+    box-shadow: 0 4px 12px var(--ll-shadow) !important;
+    transition: all 0.3s ease !important;
 }
-
 .metric-card:hover {
     transform: translateY(-2px) !important;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08) !important;
+    box-shadow: 0 8px 20px var(--ll-shadow-hover) !important;
 }
-
-.metric-icon { font-size: 22px !important; line-height: 1.2 !important; }
-.metric-label { font-size: 12px !important; color: #64748b !important; margin-top: 2px !important; font-weight: 600 !important; }
-
+.metric-icon { font-size: 22px !important; }
+.metric-label { font-size: 12px !important; color: var(--ll-text-muted) !important; margin-top: 2px !important; font-weight: 600 !important; }
 .metric-value {
     font-size: 28px !important;
     font-weight: 800 !important;
     margin: 4px 0 !important;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, 'Consolas', monospace !important;
+    font-family: 'Consolas', monospace !important;
     line-height: 1 !important;
-    color: #0f172a !important;
 }
-
-.metric-value .unit { font-size: 14px !important; font-weight: 600 !important; color: #94a3b8 !important; margin-left: 2px !important; }
-
-.metric-card.smile .metric-value { color: #d97706 !important; }
-.metric-card.tension .metric-value { color: #dc2626 !important; }
-.metric-card.vitality .metric-value { color: #0284c7 !important; }
-.metric-card.confidence .metric-value { color: #7c3aed !important; }
-
+.metric-value .unit { font-size: 14px !important; opacity: 0.6 !important; }
+.metric-card.smile .metric-value { color: var(--ll-emotion-smile); text-shadow: 0 0 12px rgba(224, 201, 122, 0.3); }
+.metric-card.tension .metric-value { color: var(--ll-emotion-tension); text-shadow: 0 0 12px rgba(217, 150, 150, 0.3); }
+.metric-card.stability .metric-value { color: var(--ll-emotion-stability); text-shadow: 0 0 12px rgba(136, 197, 212, 0.3); }
+.metric-card.vitality .metric-value { color: var(--ll-emotion-vitality); text-shadow: 0 0 12px rgba(124, 203, 170, 0.3); }
+.metric-card.confidence .metric-value { color: var(--ll-emotion-confidence); text-shadow: 0 0 12px rgba(165, 160, 212, 0.3); }
 .metric-bar {
     height: 5px !important;
-    background: #f1f5f9 !important;
+    background: var(--ll-bg-input) !important;
     border-radius: 3px !important;
     overflow: hidden !important;
     margin: 6px 0 !important;
 }
-
 .metric-fill {
     height: 100% !important;
     border-radius: 3px !important;
-    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    transition: width 0.4s ease !important;
 }
-
-.smile .metric-fill { background: linear-gradient(90deg, #f59e0b, #fbbf24) !important; }
-.tension .metric-fill { background: linear-gradient(90deg, #ef4444, #f87171) !important; }
-.vitality .metric-fill { background: linear-gradient(90deg, #0284c7, #38bdf8) !important; }
-.confidence .metric-fill { background: linear-gradient(90deg, #7c3aed, #a78bfa) !important; }
-
-.metric-feedback { 
-    font-size: 12px !important; 
-    color: #64748b !important; 
-    margin-top: 4px !important; 
+.smile .metric-fill { background: var(--ll-emotion-smile); }
+.tension .metric-fill { background: var(--ll-emotion-tension); }
+.stability .metric-fill { background: var(--ll-emotion-stability); }
+.vitality .metric-fill { background: var(--ll-emotion-vitality); }
+.confidence .metric-fill { background: var(--ll-emotion-confidence); }
+.metric-feedback {
+    font-size: 12px !important;
+    color: var(--ll-text-secondary) !important;
+    margin-top: 4px !important;
     line-height: 1.3 !important;
     min-height: 28px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
 }
-
 .advice-card {
-    background: #ffffff !important;
-    border: 1px solid #e2e8f0 !important;
+    background: var(--ll-bg-card) !important;
+    border: 1px solid var(--ll-border) !important;
     border-radius: 14px !important;
     padding: 12px 16px !important;
-    color: #334155 !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+    color: var(--ll-text-primary) !important;
 }
-
-.advice-title { font-size: 13px !important; font-weight: 700 !important; color: #4f46e5 !important; margin-bottom: 4px !important; }
-.advice-body { font-size: 12.5px !important; color: #475569 !important; line-height: 1.5 !important; white-space: pre-line !important; }
-
+.advice-title { font-size: 13px !important; font-weight: 700 !important; color: var(--ll-accent-light) !important; margin-bottom: 4px !important; }
+.advice-body { font-size: 12.5px !important; color: var(--ll-text-secondary) !important; line-height: 1.5 !important; white-space: pre-line !important; }
 .emotion-placeholder {
-    background: #ffffff !important;
-    border: 1px dashed #cbd5e1 !important;
+    background: var(--ll-bg-card) !important;
+    border: 1px dashed var(--ll-border) !important;
     border-radius: 14px !important;
     padding: 24px 16px !important;
     text-align: center !important;
-    color: #94a3b8 !important;
+    color: var(--ll-text-muted) !important;
     font-size: 13px !important;
 }
 
-/* 展示区占位卡片 */
+/* ---------------- 11. 占位卡片 ---------------- */
 .result-card-placeholder {
-    border: 2px dashed #cbd5e1 !important;
-    background-color: #ffffff !important;
+    border: 1.5px dashed var(--ll-border) !important;
+    background: var(--ll-bg-card) !important;
     border-radius: 12px !important;
     padding: 12px 16px !important;
     margin-bottom: 12px !important;
     min-height: 90px !important;
-    color: #64748b !important;
+    color: var(--ll-text-muted) !important;
 }
 
-/* ---------------- 7. Q5 标题消除双层边框终极修复 ---------------- */
+/* ---------------- 12. Q5 标签 ---------------- */
 .custom-q5-label {
-    background-color: #e0e7ff !important;
+    background: var(--ll-accent-glow) !important;
     border-radius: 8px !important;
     padding: 6px 10px !important;
     margin-bottom: 6px !important;
     border: none !important;
-    box-shadow: none !important;
 }
-
-.custom-q5-label *,
-.custom-q5-label .prose,
-.custom-q5-label .block {
+.custom-q5-label *, .custom-q5-label .prose, .custom-q5-label .block {
     background: transparent !important;
     border: none !important;
-    box-shadow: none !important;
     padding: 0 !important;
     margin: 0 !important;
 }
-
-.custom-q5-label p, 
-.custom-q5-label strong {
-    color: #4338ca !important;
+.custom-q5-label p, .custom-q5-label strong {
+    color: var(--ll-accent-light) !important;
     font-size: 0.88rem !important;
     font-weight: 600 !important;
-    line-height: 1.3 !important;
 }

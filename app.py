@@ -192,14 +192,117 @@ theme = gr.themes.Soft(primary_hue="indigo", secondary_hue="slate")
 # ---------------------------------------------------------------------------
 # Gradio 布局与交互构建 (UI Layout)
 # ---------------------------------------------------------------------------
-with gr.Blocks(theme=theme, css=custom_css, title="2030 微光相遇 (Lumina Campus Link)") as demo:
+with gr.Blocks(theme=theme, title="✨ LumiLink") as demo:
     hobby_count_state = gr.State(value=1)
+
+    # ===== 开屏动画 + 主题切换 + 匹配加载动画（js_on_load 注入，避免 <script> 被 sanitize）=====
+    gr.HTML(
+        value="""
+<div id="ll-intro">
+  <canvas id="ll-intro-canvas"></canvas>
+  <div class="ll-intro-title">LumiLink</div>
+  <div class="ll-intro-subtitle">微光相遇 · 点击任意位置进入</div>
+</div>
+<button id="ll-theme-toggle" title="切换主题">🌙</button>
+<div id="ll-loading">
+  <canvas id="ll-loading-canvas"></canvas>
+  <div class="ll-loading-text">微光匹配中</div>
+</div>
+""",
+        js_on_load="""
+setTimeout(function(){
+  function initStarfield(canvasId, starCount, connectDist){
+    var cv=document.getElementById(canvasId);
+    if(!cv) return {stop:function(){}};
+    var ctx=cv.getContext('2d');
+    var stars=[], animId=null, start=Date.now();
+    function resize(){cv.width=window.innerWidth;cv.height=window.innerHeight;}
+    resize(); window.addEventListener('resize',resize);
+    for(var i=0;i<starCount;i++){
+      stars.push({x:Math.random()*cv.width,y:Math.random()*cv.height,
+        r:Math.random()*1.4+0.3,opacity:0,delay:Math.random()*2500,
+        vx:(Math.random()-0.5)*0.12,vy:(Math.random()-0.5)*0.12,
+        tw:Math.random()*6.28});
+    }
+    function animate(){
+      var el=Date.now()-start;
+      ctx.clearRect(0,0,cv.width,cv.height);
+      stars.forEach(function(s){
+        if(el>s.delay) s.opacity=Math.min(1,s.opacity+0.007);
+        s.x+=s.vx; s.y+=s.vy;
+        if(s.x<0)s.x=cv.width; if(s.x>cv.width)s.x=0;
+        if(s.y<0)s.y=cv.height; if(s.y>cv.height)s.y=0;
+        s.tw+=0.018;
+      });
+      if(el>1800){
+        for(var i=0;i<stars.length;i++){
+          for(var j=i+1;j<stars.length;j++){
+            var dx=stars[i].x-stars[j].x, dy=stars[i].y-stars[j].y;
+            var d=Math.sqrt(dx*dx+dy*dy);
+            if(d<connectDist){
+              var a=(1-d/connectDist)*0.12*stars[i].opacity*stars[j].opacity;
+              ctx.strokeStyle='rgba(129,140,248,'+a+')';
+              ctx.lineWidth=0.5;
+              ctx.beginPath();ctx.moveTo(stars[i].x,stars[i].y);ctx.lineTo(stars[j].x,stars[j].y);ctx.stroke();
+            }
+          }
+        }
+      }
+      stars.forEach(function(s){
+        var t=0.65+0.35*Math.sin(s.tw);
+        ctx.fillStyle='rgba(200,210,255,'+(s.opacity*t)+')';
+        ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,6.28);ctx.fill();
+      });
+      animId=requestAnimationFrame(animate);
+    }
+    animate();
+    return {stop:function(){if(animId)cancelAnimationFrame(animId);}};
+  }
+  var intro=document.getElementById('ll-intro');
+  if(intro){
+    var introField=initStarfield('ll-intro-canvas',70,120);
+    intro.addEventListener('click',function(){
+      intro.classList.add('fade-out');
+      setTimeout(function(){intro.remove();introField.stop();},1500);
+    });
+  }
+  var toggle=document.getElementById('ll-theme-toggle');
+  if(toggle){
+    var saved=localStorage.getItem('ll-theme')||'dark';
+    document.documentElement.setAttribute('data-theme',saved);
+    toggle.textContent=saved==='dark'?'☀️':'🌙';
+    toggle.addEventListener('click',function(){
+      var cur=document.documentElement.getAttribute('data-theme')||'dark';
+      var next=cur==='dark'?'light':'dark';
+      document.documentElement.setAttribute('data-theme',next);
+      localStorage.setItem('ll-theme',next);
+      toggle.textContent=next==='dark'?'☀️':'🌙';
+    });
+  }
+  var loadingEl=document.getElementById('ll-loading');
+  var loadingField=null;
+  function showLoading(){if(loadingEl){loadingEl.classList.add('active');loadingField=initStarfield('ll-loading-canvas',40,100);}}
+  function hideLoading(){if(loadingEl){loadingEl.classList.remove('active');if(loadingField){loadingField.stop();loadingField=null;}}}
+  function setupObserver(){
+    var btn=document.querySelector('#submit-match-btn button')||document.querySelector('#submit-match-btn .normal-btn');
+    if(!btn){setTimeout(setupObserver,500);return;}
+    var observer=new MutationObserver(function(){
+      var txt=btn.textContent||'';
+      if(txt.indexOf('匹配中')>=0||btn.className.indexOf('matching')>=0){showLoading();}
+      else{hideLoading();}
+    });
+    observer.observe(btn,{attributes:true,attributeFilter:['class'],childList:true,subtree:true,characterData:true});
+  }
+  setupObserver();
+}, 200);
+"""
+    )
     
     # 页头 Banner
     gr.HTML(
         """
         <div class="header-banner">
-            <h1>✨ 2030“微光相遇” (Lumina Campus Link)</h1>
+            <h1>✨ LumiLink</h1>
             <p>基于真实自我剖析与多模态感知的校园交友平台 — “社交是需要能量的，我们来测测你的社交电池。”</p>
         </div>
         """
@@ -281,7 +384,7 @@ with gr.Blocks(theme=theme, css=custom_css, title="2030 微光相遇 (Lumina Cam
                     label="Q7 (破冰风格)：匹配成功后，你希望我们以什么方式帮你开启第一句话？"
                 )
                 
-                submit_btn = gr.Button("🚀 开启微光逆向匹配", variant="primary", size="lg", elem_classes=["normal-btn"])
+                submit_btn = gr.Button("🚀 开启微光逆向匹配", variant="primary", size="lg", elem_classes=["normal-btn"], elem_id="submit-match-btn")
 
         # --- 右侧展示区：算法匹配结果 & 模块四 ---
         with gr.Column(scale=6):
@@ -403,4 +506,4 @@ with gr.Blocks(theme=theme, css=custom_css, title="2030 微光相遇 (Lumina Cam
 app = demo
 
 if __name__ == "__main__":
-    demo.queue().launch(share=False)
+    demo.queue().launch(share=False, css=custom_css)
