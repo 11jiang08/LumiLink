@@ -16,12 +16,12 @@
 
 数据集目录结构：
     data/scene_dataset/
-        ├── library_study/      # 图书馆/学习
+        ├── cafe/               # 咖啡厅/猫咖
         ├── canteen/            # 食堂
-        ├── playground/         # 操场
-        ├── dormitory/          # 宿舍
         ├── classroom/          # 教室
-        └── cafe/               # 咖啡厅/猫咖
+        ├── dormitory/          # 宿舍
+        ├── library_study/      # 图书馆/学习
+        └── playground/         # 操场
 
 运行：
     python training/train_scene.py
@@ -51,12 +51,12 @@ MODELS_DIR: Path = ROOT / "models"
 OUTPUT_PATH: Path = MODELS_DIR / "scene_resnet18.pt"  # 文件名保留兼容
 
 EXPECTED_CLASSES: list[str] = [
-    "library_study",
-    "canteen",
-    "playground",
-    "dormitory",
-    "classroom",
     "cafe",
+    "canteen",
+    "classroom",
+    "dormitory",
+    "library_study",
+    "playground",
 ]
 
 logging.basicConfig(
