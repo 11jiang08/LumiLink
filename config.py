@@ -70,7 +70,7 @@ scene_labels: list[str] = [
 # 若文件存在 → 自动加载自训练 ResNet18（推荐，识别准确率高）；
 # 若文件不存在 → 回退到 ImageNet 预训练 + 规则关键词映射（兜底，准确率较低）。
 # 训练完成后会自动生成在 models/scene_resnet18.pt，无需手动改路径。
-scene_model_path: Path = MODELS_DIR / "scene_resnet18.pt"
+scene_model_path: Path = BASE_DIR / "models" / "scene_resnet18.pt"
 yolo_weights: str = "yolov8n.pt"       # YOLOv8 nano，轻量快速
 yolo_conf_threshold: float = 0.35
 yolo_top_k: int = 5                    # 只取置信度最高的前 K 个物品

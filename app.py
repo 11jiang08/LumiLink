@@ -500,6 +500,38 @@ body, .gradio-container {
     min-height: 110px !important;
     color: #64748b !important;
 }
+
+/* ---------------- Q5 标题消除双层边框终极修复 ---------------- */
+
+/* 1. 外层容器：统一淡紫背景与圆角，强行去除外边框 */
+.custom-q5-label {
+    background-color: #e0e7ff !important; /* 淡紫蓝底色 */
+    border-radius: 8px !important;         /* 统一 8px 圆角 */
+    padding: 8px 12px !important;          /* 紧凑边距 */
+    margin-bottom: 8px !important;
+    border: none !important;               /* 👈 消除外层多余边框 */
+    box-shadow: none !important;
+}
+
+/* 2. 内部原生 Gradio 容器：强制透明、无边框、无内边距 */
+.custom-q5-label *,
+.custom-q5-label .prose,
+.custom-q5-label .block {
+    background: transparent !important;    /* 👈 消除内层背景 */
+    border: none !important;               /* 👈 消除内层框线 */
+    box-shadow: none !important;
+    padding: 0 !important;                 /* 👈 消除内层内边距 */
+    margin: 0 !important;
+}
+
+/* 3. 文字样式 */
+.custom-q5-label p, 
+.custom-q5-label strong {
+    color: #4338ca !important;            /* 标准紫蓝色 */
+    font-size: 0.88rem !important;        /* 与 Q6 / 随手拍文字等大 */
+    font-weight: 600 !important;
+    line-height: 1.4 !important;
+}
 """
 
 theme = gr.themes.Soft(primary_hue="indigo", secondary_hue="slate")
@@ -561,7 +593,10 @@ with gr.Blocks(theme=theme, css=custom_css, title="2030 微光相遇 (Lumina Cam
             with gr.Column(elem_classes=["custom-card-panel"]):
                 gr.HTML('<div class="panel-title">📸 模块三：偏好与即时多模态状态</div>')
                 
-                gr.Markdown("**Q5 (兴趣爱好)：为了给你寻找志同道合的伙伴，请在下方填入你的兴趣爱好**")
+                gr.Markdown(
+                   "**Q5 (兴趣爱好)：为了给你寻找志同道合的伙伴，请在下方填入你的兴趣爱好**", 
+                    elem_classes=["custom-q5-label"]
+                )
                 hobby_inputs = []
                 hobby_inputs.append(gr.Textbox(label="兴趣 1", value="", placeholder="例如：硬核科幻", visible=True))
                 hobby_inputs.append(gr.Textbox(label="兴趣 2", value="", placeholder="例如：夜跑", visible=False))
