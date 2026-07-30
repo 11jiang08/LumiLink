@@ -9,10 +9,13 @@
 import logging
 import gradio as gr
 import config
+from pathlib import Path
 from user_profile import UserProfile, MatchResult
 from modules import fuse_multimodal_inputs, match_user, generate_icebreaker_and_guide
 from modules.emotion_analyzer import EmotionAnalyzer
 from modules.cv_perception import analyze_image
+from mock_db import MOCK_USERS
+from modules.map_generator import generate_live_campus_map
 
 # 日志配置
 logging.basicConfig(level=logging.INFO)
@@ -181,358 +184,8 @@ def run_emotion_check(image_np):
 # ---------------------------------------------------------------------------
 # 💎 UI 全局视觉重构 CSS (浪漫紫罗兰玻璃拟态 + 浅色防闪烁仪表盘)
 # ---------------------------------------------------------------------------
-custom_css = """
-/* ---------------- 1. 全局背景与布局 ---------------- */
-body, .gradio-container {
-    background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 50%, #f4f4f5 100%) !important;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-    color: #1e1b4b !important;
-}
-
-.gradio-container {
-    max-width: 1100px !important;
-    margin: 0 auto !important;
-    padding: 24px 16px !important;
-}
-
-/* ---------------- 2. 顶部 Banner 标语 ---------------- */
-.header-banner {
-    text-align: center;
-    padding: 28px 20px;
-    margin-bottom: 20px;
-    background: rgba(255, 255, 255, 0.65);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border-radius: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    box-shadow: 0 10px 30px rgba(99, 91, 255, 0.08);
-}
-
-.header-banner h1 {
-    font-size: 2.1rem;
-    font-weight: 800;
-    background: linear-gradient(135deg, #4c1d95 0%, #635bff 50%, #8c52ff 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin-bottom: 6px;
-    letter-spacing: -0.5px;
-}
-
-.header-banner p {
-    color: #6b21a8;
-    font-size: 0.95rem;
-    font-weight: 500;
-    opacity: 0.85;
-}
-
-/* ---------------- 3. 通用玻璃卡片容器 ---------------- */
-.custom-card-panel {
-    background: rgba(255, 255, 255, 0.75) !important;
-    backdrop-filter: blur(12px) !important;
-    -webkit-backdrop-filter: blur(12px) !important;
-    border-radius: 18px !important;
-    border: 1px solid rgba(255, 255, 255, 0.9) !important;
-    padding: 20px 22px !important;
-    margin-bottom: 18px !important;
-    box-shadow: 0 8px 24px rgba(99, 91, 255, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02) !important;
-    transition: transform 0.3s ease, box-shadow 0.3s ease !important;
-}
-
-.custom-card-panel:hover {
-    box-shadow: 0 12px 32px rgba(99, 91, 255, 0.08) !important;
-}
-
-.panel-title {
-    font-size: 1.1rem !important;
-    font-weight: 700 !important;
-    color: #312e81 !important;
-    margin-bottom: 14px !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-}
-
-.panel-title span.badge {
-    background: rgba(99, 91, 255, 0.1);
-    color: #635bff;
-    font-size: 0.75rem;
-    padding: 2px 8px;
-    border-radius: 20px;
-    font-weight: 600;
-}
-
-/* ---------------- 4. 单选/多选框网格卡片化重构 ---------------- */
-.gr-radio, .gr-checkbox-group {
-    background: transparent !important;
-    border: none !important;
-}
-
-.gr-radio .wrap, .gr-checkbox-group .wrap {
-    display: grid !important;
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)) !important;
-    gap: 10px !important;
-}
-
-.gr-radio label, .gr-checkbox-group label {
-    background: #ffffff !important;
-    border: 1.5px solid #e2e8f0 !important;
-    border-radius: 12px !important;
-    padding: 10px 12px !important;
-    margin: 0 !important;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    cursor: pointer !important;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    text-align: center !important;
-}
-
-.gr-radio label:hover, .gr-checkbox-group label:hover {
-    border-color: #a78bfa !important;
-    background: #fef7ff !important;
-    transform: translateY(-1px) !important;
-}
-
-.gr-radio label.selected, .gr-checkbox-group label.selected {
-    background: linear-gradient(135deg, #f3e8ff 0%, #e0e7ff 100%) !important;
-    border-color: #635bff !important;
-    color: #4338ca !important;
-    font-weight: 700 !important;
-    box-shadow: 0 4px 12px rgba(99, 91, 255, 0.2) !important;
-}
-
-.gr-radio input[type="radio"], .gr-checkbox-group input[type="checkbox"] {
-    accent-color: #635bff !important;
-}
-
-/* ---------------- 4.1 文本输入框 (gr.Textbox) 统一重构 ---------------- */
-/* 容器背景透出 */
-.gr-textbox {
-    background: transparent !important;
-    border: none !important;
-}
-
-/* 标签文字样式统一 */
-.gr-textbox label span {
-    color: #312e81 !important;
-    font-weight: 600 !important;
-    font-size: 0.9rem !important;
-    margin-bottom: 6px !important;
-}
-
-/* 输入框本体卡片化美化 */
-.gr-textbox input, .gr-textbox textarea {
-    background: #ffffff !important;
-    border: 1.5px solid #e2e8f0 !important;
-    border-radius: 12px !important;
-    padding: 10px 14px !important;
-    color: #1e1b4b !important;
-    font-size: 0.95rem !important;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02) !important;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-}
-
-/* 悬停与聚焦（Focus）动效 —— 保持与单选/多选一致的紫罗兰微光 */
-.gr-textbox input:hover, .gr-textbox textarea:hover {
-    border-color: #a78bfa !important;
-    background: #fef7ff !important;
-}
-
-.gr-textbox input:focus, .gr-textbox textarea:focus {
-    border-color: #635bff !important;
-    background: #ffffff !important;
-    box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.15) !important;
-    outline: none !important;
-}
-
-/* Placeholder 占位符颜色微调 */
-.gr-textbox input::placeholder, .gr-textbox textarea::placeholder {
-    color: #94a3b8 !important;
-    font-size: 0.9rem !important;
-}
-
-/* ---------------- 5. 交互按钮动效 ---------------- */
-.normal-btn {
-    background: linear-gradient(135deg, #635bff 0%, #8c52ff 100%) !important;
-    color: white !important;
-    border: none !important;
-    border-radius: 14px !important;
-    padding: 14px 24px !important;
-    font-size: 1.05rem !important;
-    font-weight: 700 !important;
-    box-shadow: 0 8px 24px rgba(99, 91, 255, 0.35) !important;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    cursor: pointer !important;
-    width: 100% !important;
-}
-
-.normal-btn:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 12px 32px rgba(140, 82, 255, 0.45) !important;
-}
-
-.matching-btn {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
-    color: white !important;
-    border: none !important;
-    border-radius: 14px !important;
-    padding: 14px 24px !important;
-    font-weight: 700 !important;
-    animation: pulse 1.5s infinite;
-    transition: all 0.4s ease-in-out !important;
-    width: 100% !important;
-}
-
-@keyframes pulse {
-    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-    70% { transform: scale(1.02); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-}
-
-/* ---------------- 6. 模块四：浅色防闪烁仪容仪表盘 ---------------- */
-.emotion-dashboard {
-    display: grid !important;
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)) !important;
-    gap: 12px !important;
-    margin-bottom: 14px !important;
-    width: 100% !important;
-}
-
-.metric-card {
-    background: #ffffff !important;
-    border: 1px solid #e2e8f0 !important;
-    border-radius: 14px !important;
-    padding: 14px 12px !important;
-    text-align: center !important;
-    color: #334155 !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
-    
-    /* 防闪烁 & 平滑渲染设置 */
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    backface-visibility: hidden !important;
-    will-change: transform, box-shadow !important;
-}
-
-.metric-card:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08) !important;
-}
-
-.metric-icon { font-size: 24px !important; line-height: 1.2 !important; }
-.metric-label { font-size: 12px !important; color: #64748b !important; margin-top: 4px !important; font-weight: 600 !important; }
-
-.metric-value {
-    font-size: 32px !important;
-    font-weight: 800 !important;
-    margin: 6px 0 !important;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, 'Consolas', monospace !important;
-    line-height: 1 !important;
-    color: #0f172a !important;
-}
-
-.metric-value .unit { font-size: 15px !important; font-weight: 600 !important; color: #94a3b8 !important; margin-left: 2px !important; }
-
-.metric-card.smile .metric-value { color: #d97706 !important; }
-.metric-card.tension .metric-value { color: #dc2626 !important; }
-.metric-card.vitality .metric-value { color: #0284c7 !important; }
-.metric-card.confidence .metric-value { color: #7c3aed !important; }
-
-.metric-bar {
-    height: 6px !important;
-    background: #f1f5f9 !important;
-    border-radius: 3px !important;
-    overflow: hidden !important;
-    margin: 8px 0 !important;
-}
-
-.metric-fill {
-    height: 100% !important;
-    border-radius: 3px !important;
-    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
-}
-
-.smile .metric-fill { background: linear-gradient(90deg, #f59e0b, #fbbf24) !important; }
-.tension .metric-fill { background: linear-gradient(90deg, #ef4444, #f87171) !important; }
-.vitality .metric-fill { background: linear-gradient(90deg, #0284c7, #38bdf8) !important; }
-.confidence .metric-fill { background: linear-gradient(90deg, #7c3aed, #a78bfa) !important; }
-
-.metric-feedback { 
-    font-size: 12px !important; 
-    color: #64748b !important; 
-    margin-top: 6px !important; 
-    line-height: 1.4 !important;
-    min-height: 34px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-}
-
-.advice-card {
-    background: #ffffff !important;
-    border: 1px solid #e2e8f0 !important;
-    border-radius: 14px !important;
-    padding: 14px 18px !important;
-    color: #334155 !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
-}
-
-.advice-title { font-size: 14px !important; font-weight: 700 !important; color: #4f46e5 !important; margin-bottom: 8px !important; }
-.advice-body { font-size: 13px !important; color: #475569 !important; line-height: 1.6 !important; white-space: pre-line !important; }
-
-.emotion-placeholder {
-    background: #ffffff !important;
-    border: 1px dashed #cbd5e1 !important;
-    border-radius: 14px !important;
-    padding: 36px 20px !important;
-    text-align: center !important;
-    color: #94a3b8 !important;
-    font-size: 14px !important;
-}
-
-/* 展示区占位卡片 */
-.result-card-placeholder {
-    border: 2px dashed #cbd5e1 !important;
-    background-color: #ffffff !important;
-    border-radius: 12px !important;
-    padding: 16px 20px !important;
-    margin-bottom: 16px !important;
-    min-height: 110px !important;
-    color: #64748b !important;
-}
-
-/* ---------------- Q5 标题消除双层边框终极修复 ---------------- */
-
-/* 1. 外层容器：统一淡紫背景与圆角，强行去除外边框 */
-.custom-q5-label {
-    background-color: #e0e7ff !important; /* 淡紫蓝底色 */
-    border-radius: 8px !important;         /* 统一 8px 圆角 */
-    padding: 8px 12px !important;          /* 紧凑边距 */
-    margin-bottom: 8px !important;
-    border: none !important;               /* 👈 消除外层多余边框 */
-    box-shadow: none !important;
-}
-
-/* 2. 内部原生 Gradio 容器：强制透明、无边框、无内边距 */
-.custom-q5-label *,
-.custom-q5-label .prose,
-.custom-q5-label .block {
-    background: transparent !important;    /* 👈 消除内层背景 */
-    border: none !important;               /* 👈 消除内层框线 */
-    box-shadow: none !important;
-    padding: 0 !important;                 /* 👈 消除内层内边距 */
-    margin: 0 !important;
-}
-
-/* 3. 文字样式 */
-.custom-q5-label p, 
-.custom-q5-label strong {
-    color: #4338ca !important;            /* 标准紫蓝色 */
-    font-size: 0.88rem !important;        /* 与 Q6 / 随手拍文字等大 */
-    font-weight: 600 !important;
-    line-height: 1.4 !important;
-}
-"""
+css_path = Path(__file__).parent / "style.css"
+custom_css = css_path.read_text(encoding="utf-8") if css_path.exists() else ""
 
 theme = gr.themes.Soft(primary_hue="indigo", secondary_hue="slate")
 
@@ -684,6 +337,20 @@ with gr.Blocks(theme=theme, css=custom_css, title="2030 微光相遇 (Lumina Cam
                 emotion_out = gr.HTML(
                     value='<div class="emotion-placeholder">⏳ 等待摄像头开启<br/>开启后 AI 将实时分析你的微笑度、紧张度与活力自信</div>'
                 )
+
+            # 🌟 新增：右下侧 - 校园微光分布地图 🌟
+            with gr.Column(elem_classes=["custom-card-panel"]):
+                gr.HTML(
+                    '<div class="panel-title">🌐 实时校园微光星图 '
+                    '<span class="badge" style="background: linear-gradient(135deg, #a855f7, #ec4899); color: white;">'
+                    '实时等待中</span></div>'
+                )
+                gr.Markdown("> *地图上闪烁的每个紫罗兰微光，都是此时此刻正寻找真实契合搭子的校友。*")
+                
+                # 初始化地图 HTML
+                initial_map_html = generate_live_campus_map(MOCK_USERS, user_count=16)
+                
+                campus_map_out = gr.HTML(value=initial_map_html)
 
     # ---------------------------------------------------------------------------
     # 交互事件绑定 (Event Bindings)
