@@ -38,32 +38,32 @@ class EmotionReport:
     overall_advice: str = ""
 
     def to_html(self) -> str:
-        """浅色统一风格 UI 仪表盘（四维度）。"""
+        """微光点仪表盘（四维度）。"""
         return f"""
 <div class="emotion-dashboard">
   <div class="metric-card smile">
-    <div class="metric-icon">😊</div>
+    <div class="metric-glow"></div>
     <div class="metric-label">微笑度</div>
     <div class="metric-value">{self.smile_score}<span class="unit">%</span></div>
     <div class="metric-bar"><div class="metric-fill" style="width:{self.smile_score}%"></div></div>
     <div class="metric-feedback">{self.smile_feedback}</div>
   </div>
   <div class="metric-card tension">
-    <div class="metric-icon">😰</div>
+    <div class="metric-glow"></div>
     <div class="metric-label">紧张度</div>
     <div class="metric-value">{self.tension_score}<span class="unit">%</span></div>
     <div class="metric-bar"><div class="metric-fill" style="width:{self.tension_score}%"></div></div>
     <div class="metric-feedback">{self.tension_feedback}</div>
   </div>
   <div class="metric-card vitality">
-    <div class="metric-icon">⚡</div>
+    <div class="metric-glow"></div>
     <div class="metric-label">精神饱满度</div>
     <div class="metric-value">{self.vitality_score}<span class="unit">%</span></div>
     <div class="metric-bar"><div class="metric-fill" style="width:{self.vitality_score}%"></div></div>
     <div class="metric-feedback">{self.vitality_feedback}</div>
   </div>
   <div class="metric-card confidence">
-    <div class="metric-icon">💪</div>
+    <div class="metric-glow"></div>
     <div class="metric-label">自信度</div>
     <div class="metric-value">{self.confidence_score}<span class="unit">%</span></div>
     <div class="metric-bar"><div class="metric-fill" style="width:{self.confidence_score}%"></div></div>
@@ -71,7 +71,7 @@ class EmotionReport:
   </div>
 </div>
 <div class="advice-card">
-  <div class="advice-title">📋 见面时的表情管理建议</div>
+  <div class="advice-title">见面时的表情管理建议</div>
   <div class="advice-body">{self.overall_advice}</div>
 </div>
 """
