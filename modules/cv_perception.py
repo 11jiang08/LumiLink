@@ -79,25 +79,38 @@ class CVPerceiver:
             self._resnet_transform = transform
 
             custom_path = CV.scene_model_path
+            custom_loaded = False
             if custom_path.exists():
-                # ===== 自训练模式 =====
-                logger.info("加载自训练场景权重：%s", custom_path)
-                checkpoint = torch.load(custom_path, map_location="cpu")
-                classes = list(checkpoint.get("classes", CV.scene_labels))
-                model = models.resnet18(weights=None)
-                model.fc = torch.nn.Linear(model.fc.in_features, len(classes))
-                model.load_state_dict(checkpoint["state_dict"])
-                model.eval()
-                self._resnet = model
-                self._custom_classes = classes
-                self._use_custom_resnet = True
-                logger.info("自训练模式启用，类别数=%d", len(classes))
-            else:
+                # ===== 自训练模式（ResNet50 + Dropout fc，与训练脚本一致）=====
+                try:
+                    logger.info("加载自训练场景权重：%s", custom_path)
+                    checkpoint = torch.load(custom_path, map_location="cpu")
+                    classes = list(checkpoint.get("classes", CV.scene_labels))
+                    model = models.resnet50(weights=None)
+                    in_features = model.fc.in_features
+                    model.fc = torch.nn.Sequential(
+                        torch.nn.Dropout(p=0.3),
+                        torch.nn.Linear(in_features, len(classes)),
+                    )
+                    model.load_state_dict(checkpoint["state_dict"])
+                    model.eval()
+                    self._resnet = model
+                    self._custom_classes = classes
+                    self._use_custom_resnet = True
+                    logger.info("自训练模式启用（ResNet50），类别数=%d", len(classes))
+                    custom_loaded = True
+                except Exception as e:
+                    logger.warning(
+                        "自训练权重加载失败（可能是旧版 ResNet18 权重）：%s，回退到 ImageNet 模式。"
+                        "请用增强版 training/train_scene.py 重新训练。",
+                        e,
+                    )
+
+            if not custom_loaded:
                 # ===== ImageNet 兜底模式 =====
                 logger.warning(
-                    "未找到自训练权重 %s，回退到 ImageNet 预训练 + 规则映射。"
+                    "使用 ImageNet 预训练 + 规则映射。"
                     "建议运行 training/train_scene.py 训练专用权重以提升准确率。",
-                    custom_path,
                 )
                 weights = models.ResNet18_Weights.DEFAULT
                 model = models.resnet18(weights=weights)

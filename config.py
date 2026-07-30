@@ -41,12 +41,12 @@ class CVConfig:
 
     # ResNet18 场景分类标签（必须与 data/scene_dataset/ 子文件夹名一一对应）
     scene_labels: list[str] = [
-        "library_study",   # 图书馆/学习
+        "cafe",            # 咖啡厅/猫咖"library_study",   # 图书馆/学习
         "canteen",         # 食堂
-        "playground",      # 操场
-        "dormitory",       # 宿舍
         "classroom",       # 教室
-        "cafe",            # 咖啡厅/猫咖
+        "dormitory",       # 宿舍
+        "library_study",   # 图书馆/学习
+        "playground",      # 操场
     ]
     # 自训练场景分类权重路径。
     # 若文件存在 → 自动加载自训练 ResNet18（推荐，识别准确率高）；
