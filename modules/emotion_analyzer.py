@@ -1,43 +1,44 @@
 # modules/emotion_analyzer.py
 """
 仪容自检模块 (Emotion & Composure Analyzer) - MediaPipe 1.0 Tasks API 版
-基于 FaceLandmarker 的 52 个 ARKit blendshapes（表情系数），输出五维度评分：
+基于 FaceLandmarker 的 ARKit blendshapes（表情系数），输出四维度评分：
 1. 微笑度（mouthSmile 均值，减去 mouthFrown 抵消误判）
 2. 紧张度（browDown 眉下压 + mouthPress 嘴唇紧抿 + mouthShrugLower 咬合）
-3. 眼神稳定度（eyeLook* 眼球偏移 + eyeBlink 眨眼程度）
-4. 精神饱满度（反疲惫：低眨眼 + 低眯眼 + 低下唇收紧）
-5. 自信度（browInnerUp 内眉上扬 + jawForward 下巴前伸 + 低眉下压）
+3. 精神饱满度（反疲惫：低眨眼 + 低眯眼 + 低下唇收紧）
+4. 自信度（browInnerUp 内眉上扬 + jawForward 下巴前伸 + 低眉下压）
 
-加滑动平均滤波器（默认 5 帧窗口）平滑五维度分数，消除帧间抖动。
+内置滑动平均滤波器（默认 5 帧窗口）平滑四维度分数，消除帧间抖动。
 """
 
 import logging
+import urllib.request
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_MODEL_PATH = str(Path(__file__).parent.parent / "models" / "face_landmarker.task")
+# 使用 Path 确保跨平台及路径编码兼容
+_BASE_DIR = Path(__file__).resolve().parent.parent
+_MODEL_PATH = _BASE_DIR / "models" / "face_landmarker.task"
+_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 
 
 @dataclass
 class EmotionReport:
-    """仪容自检报告（五维度）。"""
+    """仪容自检报告（四维度）。"""
     smile_score: int = 0          # 微笑度 0-100
     tension_score: int = 0        # 紧张度 0-100（越高越紧张）
-    stability_score: int = 0      # 眼神稳定度 0-100
     vitality_score: int = 0       # 精神饱满度 0-100（越高越精神）
     confidence_score: int = 0     # 自信度 0-100
     smile_feedback: str = ""
     tension_feedback: str = ""
-    stability_feedback: str = ""
     vitality_feedback: str = ""
     confidence_feedback: str = ""
     overall_advice: str = ""
 
     def to_html(self) -> str:
-        """科技感五维仪表盘 HTML（深色卡片 + 发光数值 + 渐变进度条）。"""
+        """浅色统一风格 UI 仪表盘（四维度）。"""
         return f"""
 <div class="emotion-dashboard">
   <div class="metric-card smile">
@@ -53,13 +54,6 @@ class EmotionReport:
     <div class="metric-value">{self.tension_score}<span class="unit">%</span></div>
     <div class="metric-bar"><div class="metric-fill" style="width:{self.tension_score}%"></div></div>
     <div class="metric-feedback">{self.tension_feedback}</div>
-  </div>
-  <div class="metric-card stability">
-    <div class="metric-icon">👀</div>
-    <div class="metric-label">眼神稳定度</div>
-    <div class="metric-value">{self.stability_score}<span class="unit">%</span></div>
-    <div class="metric-bar"><div class="metric-fill" style="width:{self.stability_score}%"></div></div>
-    <div class="metric-feedback">{self.stability_feedback}</div>
   </div>
   <div class="metric-card vitality">
     <div class="metric-icon">⚡</div>
@@ -88,7 +82,6 @@ class EmotionReport:
             "### 🪞 仪容自检报告（实时）\n\n"
             f"😊 **微笑度 {self.smile_score}%** → {self.smile_feedback}\n\n"
             f"😰 **紧张度 {self.tension_score}%** → {self.tension_feedback}\n\n"
-            f"👀 **眼神稳定度 {self.stability_score}%** → {self.stability_feedback}\n\n"
             f"⚡ **精神饱满度 {self.vitality_score}%** → {self.vitality_feedback}\n\n"
             f"💪 **自信度 {self.confidence_score}%** → {self.confidence_feedback}\n\n"
             "---\n"
@@ -102,10 +95,9 @@ class EmotionAnalyzer:
     def __init__(self, smooth_window: int = 5):
         self._detector = None
         self._smooth_window = smooth_window
-        # 五维度历史缓冲，用 deque 自动滚动窗口
+        # 四维度历史缓冲，用 deque 自动滚动窗口
         self._smile_hist = deque(maxlen=smooth_window)
         self._tension_hist = deque(maxlen=smooth_window)
-        self._stability_hist = deque(maxlen=smooth_window)
         self._vitality_hist = deque(maxlen=smooth_window)
         self._confidence_hist = deque(maxlen=smooth_window)
 
@@ -113,7 +105,6 @@ class EmotionAnalyzer:
         """重置滤波器历史（切换用户/重新开始时调用）。"""
         self._smile_hist.clear()
         self._tension_hist.clear()
-        self._stability_hist.clear()
         self._vitality_hist.clear()
         self._confidence_hist.clear()
 
@@ -124,7 +115,7 @@ class EmotionAnalyzer:
         return int(sum(history) / len(history))
 
     def _ensure_initialized(self):
-        """懒加载 FaceLandmarker，避免影响 app 启动速度。"""
+        """懒加载 FaceLandmarker，自动检测/下载模型文件。"""
         if self._detector is not None:
             return
         try:
@@ -132,14 +123,21 @@ class EmotionAnalyzer:
             from mediapipe.tasks import python as mp_python
             from mediapipe.tasks.python import vision
 
-            if not Path(_MODEL_PATH).exists():
-                raise FileNotFoundError(
-                    f"模型文件不存在：{_MODEL_PATH}\n"
-                    "请从 https://storage.googleapis.com/mediapipe-models/"
-                    "face_landmarker/face_landmarker/float16/1/face_landmarker.task 下载"
-                )
+            # 如果模型不存在，尝试自动从 CDN 下载
+            if not _MODEL_PATH.exists():
+                logger.info(f"未检测到模型文件，正在自动下载至: {_MODEL_PATH} ...")
+                _MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    urllib.request.urlretrieve(_MODEL_URL, str(_MODEL_PATH))
+                    logger.info("模型文件下载成功！")
+                except Exception as dl_err:
+                    logger.error(f"模型下载失败: {dl_err}")
+                    raise FileNotFoundError(
+                        f"模型文件不存在且无法自动下载：{_MODEL_PATH}\n"
+                        f"请手动下载放置：{_MODEL_URL}"
+                    ) from dl_err
 
-            base_options = mp_python.BaseOptions(model_asset_path=_MODEL_PATH)
+            base_options = mp_python.BaseOptions(model_asset_path=str(_MODEL_PATH))
             options = vision.FaceLandmarkerOptions(
                 base_options=base_options,
                 output_face_blendshapes=True,
@@ -153,7 +151,7 @@ class EmotionAnalyzer:
 
     def analyze(self, image_np) -> EmotionReport:
         """
-        对一张人脸图像做五维度评分（基于 blendshapes + 滑动平均滤波）。
+        对一张人脸图像做四维度评分（基于 blendshapes + 滑动平均滤波）。
 
         :param image_np: numpy ndarray (RGB, HxWx3)，来自 Gradio 的 webcam
         :return: EmotionReport
@@ -162,7 +160,7 @@ class EmotionAnalyzer:
         import mediapipe as mp
 
         if image_np is None:
-            return self._fail_report("未接收到图像数据")
+            return self._fail_report("未检测到图片")
 
         rgb = image_np
         if rgb.ndim != 3 or rgb.shape[2] != 3:
@@ -191,22 +189,13 @@ class EmotionAnalyzer:
         tension = int((brow_down * 0.6 + mouth_press * 0.25 + jaw_clench * 0.15) * 100)
         tension = max(0, min(100, tension))
 
-        # ---- 3. 眼神稳定度：眼球偏移越小越稳 ----
-        look_in = (bs.get("eyeLookInLeft", 0) + bs.get("eyeLookInRight", 0)) / 2
-        look_out = (bs.get("eyeLookOutLeft", 0) + bs.get("eyeLookOutRight", 0)) / 2
-        look_up = (bs.get("eyeLookUpLeft", 0) + bs.get("eyeLookUpRight", 0)) / 2
-        look_down = (bs.get("eyeLookDownLeft", 0) + bs.get("eyeLookDownRight", 0)) / 2
-        gaze_shift = (look_in + look_out + look_up + look_down) / 4
+        # ---- 3. 精神饱满度：低眨眼 + 低眯眼 + 低下唇收紧 = 精神 ----
         blink = (bs.get("eyeBlinkLeft", 0) + bs.get("eyeBlinkRight", 0)) / 2
-        stability = int(100 - (gaze_shift * 160 + blink * 40))
-        stability = max(0, min(100, stability))
-
-        # ---- 4. 精神饱满度：低眨眼 + 低眯眼 + 低下唇收紧 = 精神 ----
         eye_squint = (bs.get("eyeSquintLeft", 0) + bs.get("eyeSquintRight", 0)) / 2
         vitality = int(100 - (blink * 30 + eye_squint * 35 + jaw_clench * 35))
         vitality = max(0, min(100, vitality))
 
-        # ---- 5. 自信度：内眉上扬 + 下巴前伸 + 低眉下压 ----
+        # ---- 4. 自信度：内眉上扬 + 下巴前伸 + 低眉下压 ----
         brow_inner_up = bs.get("browInnerUp", 0)
         jaw_forward = bs.get("jawForward", 0)
         confidence = int((brow_inner_up * 0.35 + jaw_forward * 0.30 + (1 - brow_down) * 0.35) * 100)
@@ -215,22 +204,19 @@ class EmotionAnalyzer:
         # ---- 滑动平均滤波：平滑帧间抖动 ----
         smile = self._smooth(smile, self._smile_hist)
         tension = self._smooth(tension, self._tension_hist)
-        stability = self._smooth(stability, self._stability_hist)
         vitality = self._smooth(vitality, self._vitality_hist)
         confidence = self._smooth(confidence, self._confidence_hist)
 
         return EmotionReport(
             smile_score=smile,
             tension_score=tension,
-            stability_score=stability,
             vitality_score=vitality,
             confidence_score=confidence,
             smile_feedback=self._smile_feedback(smile),
             tension_feedback=self._tension_feedback(tension),
-            stability_feedback=self._stability_feedback(stability),
             vitality_feedback=self._vitality_feedback(vitality),
             confidence_feedback=self._confidence_feedback(confidence),
-            overall_advice=self._overall_advice(smile, tension, stability, vitality, confidence),
+            overall_advice=self._overall_advice(smile, tension, vitality, confidence),
         )
 
     @staticmethod
@@ -250,14 +236,6 @@ class EmotionAnalyzer:
         return "很放松，状态在线！"
 
     @staticmethod
-    def _stability_feedback(score: int) -> str:
-        if score >= 65:
-            return "眼神很自然，见面时就这样看着对方。"
-        if score >= 40:
-            return "眼神略飘，试着把目光落在对方鼻梁三角区。"
-        return "眼神躲闪，建议见面时盯着对方双眼之间，减轻对视压力。"
-
-    @staticmethod
     def _vitality_feedback(score: int) -> str:
         if score >= 65:
             return "精神饱满，眼神有光，状态满分！"
@@ -274,14 +252,12 @@ class EmotionAnalyzer:
         return "建议挺胸抬头、微微扬起下巴，提升气场。"
 
     @staticmethod
-    def _overall_advice(smile: int, tension: int, stability: int, vitality: int, confidence: int) -> str:
+    def _overall_advice(smile: int, tension: int, vitality: int, confidence: int) -> str:
         tips = []
         if smile < 50:
             tips.append("- 见面时保持自然微笑，不用僵硬——可以提前想一个开心的小事。")
         if tension >= 45:
             tips.append("- 见面前做 3 次深呼吸（4 秒吸、7 秒屏、8 秒呼），能快速降紧张。")
-        if stability < 55:
-            tips.append("- 眼神不知道往哪放时，看对方鼻梁三角区，既不躲闪也不冒犯。")
         if vitality < 50:
             tips.append("- 精神不够时，见面前用冷水洗脸或做 10 秒开合跳，快速唤醒状态。")
         if confidence < 40:
@@ -295,7 +271,6 @@ class EmotionAnalyzer:
         return EmotionReport(
             smile_feedback=msg,
             tension_feedback="—",
-            stability_feedback="—",
             vitality_feedback="—",
             confidence_feedback="—",
             overall_advice="请重新拍照后再试。",
