@@ -102,6 +102,16 @@
     --color-background-secondary: #eaecf0 !important;
     --background-fill-primary: #f4f5f7 !important;
     --background-fill-secondary: #eaecf0 !important;
+
+    /* 覆盖 :root 中残留的灰字变量，让 Light 模式下选项文字真正变亮变深 */
+    --checkbox-background-color: transparent !important;
+    --checkbox-border-color: rgba(90,101,136,0.25) !important;
+    --checkbox-label-text-color: #1f2533 !important;
+    --radio-color: #5a6588 !important;
+    --radio-label-text-color: #1f2533 !important;
+    --block-label-text-color: #3d4456 !important;
+    --block-title-text-color: #2a3040 !important;
+    --input-placeholder-color: #8a90a0 !important;
 }
 
 /* ---------------- 1. 全局背景与布局（满屏） ---------------- */
@@ -174,13 +184,14 @@ body, .gradio-container {
     opacity: 0;
 }
 .ll-intro-subtitle {
-    font-size: 0.8rem;
+    font-size: 0.95rem;
     font-weight: 300;
-    color: #454a58;
-    letter-spacing: 4px;
+    color: #ffffff;
+    letter-spacing: 5px;
     margin-top: 14px;
     opacity: 0;
     z-index: 2;
+    text-shadow: 0 0 18px rgba(155, 164, 196, 0.45);
     animation: llTitleFadeIn 0.5s ease 0.8s forwards;
     transition: opacity 0.4s ease;
 }
@@ -438,7 +449,14 @@ body, .gradio-container {
 [data-theme="light"] .gr-checkbox-group label {
     background: rgba(255, 255, 255, 0.9) !important;
     border-color: rgba(90, 101, 136, 0.22) !important;
-    color: #2a3040 !important;
+    color: #1f2533 !important;
+}
+/* 强制选项内层文字也用深色（Gradio 内部 span 可能覆盖 label 颜色） */
+[data-theme="light"] .gr-radio label span,
+[data-theme="light"] .gr-checkbox-group label span,
+[data-theme="light"] .gr-radio label .svelte-1t3qoh6,
+[data-theme="light"] .gr-checkbox-group label .svelte-1t3qoh6 {
+    color: #1f2533 !important;
 }
 [data-theme="light"] .gr-radio label:hover,
 [data-theme="light"] .gr-checkbox-group label:hover {
@@ -449,7 +467,12 @@ body, .gradio-container {
 [data-theme="light"] .gr-checkbox-group label.selected {
     background: rgba(90, 101, 136, 0.12) !important;
     border-color: var(--ll-accent) !important;
-    color: var(--ll-accent) !important;
+    color: #3a4568 !important;
+}
+[data-theme="light"] .gr-radio label.selected span,
+[data-theme="light"] .gr-checkbox-group label.selected span {
+    color: #3a4568 !important;
+    font-weight: 600 !important;
 }
 .gr-radio label:hover, .gr-checkbox-group label:hover {
     border-color: var(--ll-border-hover) !important;
