@@ -5,18 +5,18 @@
 
 /* ---------------- 0. CSS 变量：Dark 模式（默认） ---------------- */
 :root {
-    --ll-bg-primary: #24293ecd;
-    --ll-bg-secondary: #25272e90;
-    --ll-bg-card: rgba(49, 66, 99, 0.877); /*大模块背景*/
+    --ll-bg-primary: #1c2231d4;
+    --ll-bg-secondary: #30323b90;
+    --ll-bg-card: rgba(44, 57, 87, 0.877); /*大模块背景*/
     --ll-bg-card-hover: rgba(33, 39, 53, 0.88);
     --ll-bg-input: rgba(22, 26, 36, 0.72);
     --ll-bg-input-focus: rgba(28, 33, 46, 0.92);
-    --ll-text-primary: #dde2ee;
+    --ll-text-primary: #e9eefa;
     --ll-text-secondary: #d4dbeb35;
     --ll-text-faint: #e4eaf7;
-    --ll-accent: #29768a;
-    --ll-accent-light: #04313d;
-    --ll-accent-glow: rgba(154, 213, 247, 0.925);
+    --ll-accent: #3f7886;
+    --ll-accent-light: #135162;
+    --ll-accent-glow: rgba(153, 187, 207, 0.925);
     --ll-border: rgba(122, 133, 168, 0.16);
     --ll-border-hover: rgba(122, 133, 168, 0.3);
     --ll-shadow: rgba(0, 0, 0, 0.4);
@@ -71,19 +71,19 @@
 /* ---------------- 0.1 CSS 变量：Light 模式 ---------------- */
 [data-theme="light"] {
     --ll-bg-primary: #f4f5f7;
-    --ll-bg-secondary: #eaecf0c7;
+    --ll-bg-secondary: #babfbbb7;
     --ll-bg-card: rgba(255, 255, 255, 0.82);
     --ll-bg-card-hover: rgba(255, 255, 255, 0.95);
     --ll-bg-input: #ffffff;
     --ll-bg-input-focus: #ffffff;
-    --ll-text-primary: #2a3040;
-    --ll-text-secondary: #3d4456;
-    --ll-text-faint: #8a90a0;
-    --ll-accent: #5a6588;
+    --ll-text-primary: #2a3040;/* 主文本颜色 */
+    --ll-text-secondary: #3d4456;/* 次要文本颜色 */
+    --ll-text-faint: #9599a7;/* 轻度文本颜色 */
+    --ll-accent: #5a6588;/* 主色 */
     --ll-accent-light: #343e5e;
     --ll-accent-glow: rgba(129, 148, 210, 0.329);
     --ll-border: rgba(90, 101, 136, 0.14);
-    --ll-border-hover: rgba(90, 101, 136, 0.3);
+    --ll-border-hover: rgb(84, 120, 193);
     --ll-shadow: rgba(90, 101, 136, 0.04);
     --ll-shadow-hover: rgba(90, 101, 136, 0.08);
     --ll-emotion-smile: #a0a070;
@@ -677,11 +677,11 @@ body, .gradio-container {
     color: var(--ll-text-faint) !important;
 }
 
-/* ---------------- 12. Q5 标签 ---------------- */
+/* ---------------- 12. Q5 标签（与其他 Q 一致，无底框）---------------- */
 .custom-q5-label {
-    background: var(--ll-accent-glow) !important;
-    border-radius: 7px !important;
-    padding: 4px 7px !important;
+    background: transparent !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
     margin-bottom: 3px !important;
     border: none !important;
 }
@@ -692,7 +692,7 @@ body, .gradio-container {
     margin: 0 !important;
 }
 .custom-q5-label p, .custom-q5-label strong {
-    color: var(--ll-accent-light) !important;
+    color: var(--ll-text-secondary) !important;
     font-size: 0.8rem !important;
     font-weight: 500 !important;
 }

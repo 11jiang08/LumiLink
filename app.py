@@ -436,9 +436,9 @@ setTimeout(function(){
             with gr.Column(elem_classes=["custom-card-panel"]):
                 gr.HTML('<div class="panel-title">📸 模块三：偏好与即时多模态状态</div>')
                 
-                gr.Markdown(
-                   "**Q5 (兴趣爱好)：为了给你寻找志同道合的伙伴，请在下方填入你的兴趣爱好**", 
-                    elem_classes=["custom-q5-label"]
+                intent_in = gr.Textbox(
+                    label="Q5 (兴趣爱好)：为了给你寻找志同道合的伙伴，请在下方填入你的兴趣爱好", 
+                    value="", 
                 )
                 hobby_inputs = []
                 hobby_inputs.append(gr.Textbox(label="兴趣 1", value="", placeholder="例如：硬核科幻", visible=True))
