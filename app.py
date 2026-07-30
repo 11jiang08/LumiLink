@@ -306,6 +306,52 @@ body, .gradio-container {
     accent-color: #635bff !important;
 }
 
+/* ---------------- 4.1 文本输入框 (gr.Textbox) 统一重构 ---------------- */
+/* 容器背景透出 */
+.gr-textbox {
+    background: transparent !important;
+    border: none !important;
+}
+
+/* 标签文字样式统一 */
+.gr-textbox label span {
+    color: #312e81 !important;
+    font-weight: 600 !important;
+    font-size: 0.9rem !important;
+    margin-bottom: 6px !important;
+}
+
+/* 输入框本体卡片化美化 */
+.gr-textbox input, .gr-textbox textarea {
+    background: #ffffff !important;
+    border: 1.5px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    padding: 10px 14px !important;
+    color: #1e1b4b !important;
+    font-size: 0.95rem !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02) !important;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* 悬停与聚焦（Focus）动效 —— 保持与单选/多选一致的紫罗兰微光 */
+.gr-textbox input:hover, .gr-textbox textarea:hover {
+    border-color: #a78bfa !important;
+    background: #fef7ff !important;
+}
+
+.gr-textbox input:focus, .gr-textbox textarea:focus {
+    border-color: #635bff !important;
+    background: #ffffff !important;
+    box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.15) !important;
+    outline: none !important;
+}
+
+/* Placeholder 占位符颜色微调 */
+.gr-textbox input::placeholder, .gr-textbox textarea::placeholder {
+    color: #94a3b8 !important;
+    font-size: 0.9rem !important;
+}
+
 /* ---------------- 5. 交互按钮动效 ---------------- */
 .normal-btn {
     background: linear-gradient(135deg, #635bff 0%, #8c52ff 100%) !important;
